@@ -95,3 +95,8 @@
   - Applied `supabase/migrations/20261123000300_security_hardening_and_indexes.sql` to live Supabase Cloud (`ygdatgpfjephccykqqsc`): masked `reporter_id`/`author_id` for non-owner citizens in `public_reports_view` & `public_tips_view`, locked direct `report_corroborations` client inserts, added 5 missing FK indexes + user-scoped `idempotency_key` index on `distress_signals`, set `criminal-photos` private, and added `evidence-media` admin delete policy.
   - Added `SupabaseDaakStore` (`apps/api/app/store.py`) with `public.profiles` role lookup, live PostgREST readiness probe (`/healthz/ready`), and persistence sync; scoped SOS idempotency by `user_id`; made `moderate_report` atomic & credibility-idempotent; enforced report visibility on tips/corroboration; fixed Safe Walk `extend` and spatial cache invalidations; filtered spam from `/heatmap` and added `(lat, lng, radius_m)` support to `/safety-score`.
 - **Verification Evidence:** `uv run --directory apps/api pytest -v` → `17 passed in 0.70s` (0 failures); `verify_schema_rls.py` & `verify_connections.py --quick` → all `PASS`.
+
+### Slice 3.4 (Desktop Web Design Tokens, SLA Logic & Next.js 16 Shell)
+- **TDD RED:** Wrote `apps/web/tests/opsLogic.test.mts` and ran `node --test`; failed with `ERR_MODULE_NOT_FOUND` for `opsLogic.ts`.
+- **TDD GREEN:** Created root `package.json`, `apps/web/package.json` (`next@16.4.6`, `react@19`, `typescript@5.8.2`), `tsconfig.json`, `next.config.mjs`, `src/lib/opsLogic.ts`, `src/app/globals.css` (`DESIGN.md` Civic Chalk + Monsoon Slate tokens), and `src/app/layout.tsx` (`Public Sans` + `JetBrains Mono`).
+- **Verification Evidence:** `npm --prefix apps/web audit` → `found 0 vulnerabilities`; `node --test apps/web/tests/opsLogic.test.mts` → `4 passed, 0 failed`.
