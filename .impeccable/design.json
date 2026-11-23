@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-23T19:07:00+06:00",
+  "title": "Design System: Daak v2 — Dhaka Civic Dispatch & Municipal Enamel",
+  "extensions": {
+    "colorMeta": {
+      "bg-canvas": {
+        "role": "neutral",
+        "displayName": "Civic Chalk",
+        "canonical": "#F6F7F4",
+        "tonalRamp": ["#131C1E", "#2C383B", "#4B5B5E", "#6F8083", "#9EB0B3", "#D5DDD9", "#ECEFEB", "#F6F7F4"]
+      },
+      "bg-surface": {
+        "role": "neutral",
+        "displayName": "Municipal Enamel",
+        "canonical": "#FFFFFF",
+        "tonalRamp": ["#182126", "#26343A", "#4B5B5E", "#7B8C8F", "#B6C2BE", "#D5DDD9", "#F6F7F4", "#FFFFFF"]
+      },
+      "bg-rail-committed": {
+        "role": "primary",
+        "displayName": "Dhaka Civic Teal",
+        "canonical": "#0F514A",
+        "tonalRamp": ["#06211E", "#0B3F3A", "#0F514A", "#166E64", "#239588", "#2DD4BF", "#9BEBE0", "#E6F7F4"]
+      },
+      "bg-canvas-dark": {
+        "role": "neutral",
+        "displayName": "Monsoon Slate",
+        "canonical": "#11171A",
+        "tonalRamp": ["#0C1114", "#11171A", "#182126", "#1E292F", "#26343A", "#4B5B5E", "#9EB0B3", "#EEF2F1"]
+      },
+      "signal-emergency": {
+        "role": "semantic-emergency",
+        "displayName": "Emergency Crimson",
+        "canonical": "#C81E2B",
+        "tonalRamp": ["#451218", "#7F1D1D", "#991B1B", "#C81E2B", "#DC2626", "#F87171", "#FECACA", "#FDECEC"]
+      },
+      "signal-warning": {
+        "role": "semantic-warning",
+        "displayName": "Signal Amber",
+        "canonical": "#B45309",
+        "tonalRamp": ["#3D2808", "#78350F", "#92400E", "#B45309", "#D97706", "#FBBF24", "#FDE68A", "#FEF3C7"]
+      },
+      "signal-safe": {
+        "role": "semantic-safe",
+        "displayName": "Civic Emerald",
+        "canonical": "#15803D",
+        "tonalRamp": ["#103320", "#14532D", "#166534", "#15803D", "#22C55E", "#4ADE80", "#BBF7D0", "#E8F5EC"]
+      },
+      "signal-info": {
+        "role": "semantic-info",
+        "displayName": "River Cyan",
+        "canonical": "#0E7490",
+        "tonalRamp": ["#0F2B38", "#164E63", "#155E75", "#0E7490", "#06B6D4", "#38BDF8", "#BAE6FD", "#E6F4F7"]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Public Sans (Page Title / Panel Header)",
+        "purpose": "Authoritative civic wayfinding legibility for dispatch headings, tables, and controls."
+      },
+      "body": {
+        "displayName": "Public Sans (Body 14px)",
+        "purpose": "High-density operational prose, constrained to 70ch max measure."
+      },
+      "mono": {
+        "displayName": "JetBrains Mono",
+        "purpose": "Strictly for GPS coordinates, case IDs, and tabular MM:SS SLA chronometers."
+      }
+    },
+    "shadows": [
+      {
+        "name": "hairline-flat",
+        "value": "none",
+        "purpose": "Flat-by-default hairline structural seams (1px solid var(--border-hairline)); zero ghost drop shadows."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "150ms–180ms ease",
+        "purpose": "Crisp drawer, button, and table-row hover transitions; degrades to 0.01ms under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "1024px" },
+      { "name": "lg", "value": "1080px" },
+      { "name": "xl", "value": "1440px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Authority Button",
+      "kind": "button",
+      "refersTo": "btn-primary",
+      "description": "Primary dispatch and moderation action button in Dhaka Civic Teal.",
+      "html": "<button type=\"button\" class=\"ds-btn-primary\">Claim alert</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 6px; padding: 7px 12px; font-size: 0.8125rem; font-weight: 600; border: 1px solid var(--bg-rail-committed, #0F514A); background-color: var(--bg-rail-committed, #0F514A); color: #ffffff; cursor: pointer; transition: background-color 150ms ease; } .ds-btn-primary:hover { background-color: var(--bg-rail-committed-hover, #0B3F3A); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus-ring, #0F514A); outline-offset: 2px; }"
+    },
+    {
+      "name": "Emergency SOS Ring Button",
+      "kind": "button",
+      "refersTo": "btn-emergency",
+      "description": "Tactile 5-second cancelable SOS trigger reserved strictly for active distress.",
+      "html": "<button type=\"button\" class=\"ds-sos-ring\"><span>SOS</span><span class=\"ds-sos-sub\">Tap for 5s countdown</span></button>",
+      "css": ".ds-sos-ring { width: 148px; height: 148px; border-radius: 999px; border: 4px solid var(--signal-emergency-soft, #FDECEC); background-color: var(--signal-emergency-fill, #C81E2B); color: var(--signal-emergency-on-fill, #FFFFFF); font-size: 1.125rem; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; } .ds-sos-sub { font-size: 0.75rem; font-weight: 500; margin-top: 4px; } .ds-sos-ring:focus-visible { outline: 2px solid var(--focus-ring, #0F514A); outline-offset: 3px; }"
+    },
+    {
+      "name": "SLA Chronometer Pill",
+      "kind": "chip",
+      "refersTo": "pill-breach",
+      "description": "Tabular monospace SLA elapsed timer pill shifting across normal, warning, and breach tiers.",
+      "html": "<span class=\"ds-sla-pill\">11:05</span>",
+      "css": ".ds-sla-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-family: var(--font-jetbrains-mono, monospace); font-variant-numeric: tabular-nums; font-size: 0.75rem; font-weight: 600; background-color: var(--signal-emergency-soft, #FDECEC); color: var(--signal-emergency, #C81E2B); border: 1px solid var(--signal-emergency, #C81E2B); }"
+    },
+    {
+      "name": "Committed Rail Nav Item",
+      "kind": "nav",
+      "refersTo": "daak-nav-btn",
+      "description": "Navigation item inside the 224px Dhaka Civic Teal dispatch rail.",
+      "html": "<div class=\"ds-rail-bg\"><button type=\"button\" class=\"ds-nav-item\" aria-current=\"page\"><span>SOS Monitor</span><span class=\"ds-count\">3</span></button></div>",
+      "css": ".ds-rail-bg { background: var(--bg-rail-committed, #0F514A); padding: 10px; border-radius: 8px; width: 220px; } .ds-nav-item { display: flex; align-items: center; justify-content: space-between; width: 100%; background: rgba(255,255,255,0.14); color: var(--ink-on-rail, #F0F5F3); border: 1px solid rgba(255,255,255,0.24); border-radius: 6px; padding: 8px 10px; font-size: 0.875rem; font-weight: 600; cursor: pointer; } .ds-nav-item:hover { background: var(--bg-rail-committed-hover, #0B3F3A); } .ds-nav-item:focus-visible { outline: 2px solid #2DD4BF; outline-offset: 2px; } .ds-count { font-family: var(--font-jetbrains-mono, monospace); font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Hairline Form Input",
+      "kind": "input",
+      "refersTo": "field-input",
+      "description": "Clean 1px-bordered form control for patrol unit assignment and handover briefings.",
+      "html": "<input class=\"ds-field-input\" type=\"text\" value=\"Mirpur Patrol-09\" aria-label=\"Assign patrol unit\" />",
+      "css": ".ds-field-input { width: 100%; padding: 8px 10px; font-size: 0.875rem; border-radius: 6px; border: 1px solid var(--border-hairline, #D5DDD9); background-color: var(--bg-surface, #FFFFFF); color: var(--ink-primary, #131C1E); } .ds-field-input:focus-visible { outline: 2px solid var(--focus-ring, #0F514A); outline-offset: 2px; }"
+    },
+    {
+      "name": "Case Surface Panel",
+      "kind": "card",
+      "refersTo": "surface-panel",
+      "description": "Flat hairline-ruled container replacing shadow-heavy SaaS cards.",
+      "html": "<section class=\"ds-surface-panel\"><strong>Dhanmondi · Active</strong><p class=\"ds-panel-meta\">Nearest Thana: Dhanmondi Model Police Station (0.19 km)</p></section>",
+      "css": ".ds-surface-panel { background-color: var(--bg-surface, #FFFFFF); border: 1px solid var(--border-hairline, #D5DDD9); border-radius: 8px; padding: 12px 14px; color: var(--ink-primary, #131C1E); } .ds-panel-meta { margin: 4px 0 0; font-size: 0.75rem; color: var(--ink-secondary, #4B5B5E); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Dhaka Civic Dispatch & Municipal Enamel",
+    "overview": "Modeled after high-legibility civic wayfinding signage, Dhaka municipal/postal authority teal-green, daylight-first chalk surfaces, and true monsoon-slate dark mode, with strict semantic emergency crimson reserved exclusively for live distress and SLA breaches.",
+    "keyCharacteristics": [
+      "Daylight-first Civic Chalk (#F6F7F4) paired with committed Dhaka Civic Teal (#0F514A) navigation rail and Monsoon Slate (#11171A) dark theme",
+      "Public Sans UI typography paired with tabular JetBrains Mono strictly for GPS coordinates, case IDs, and MM:SS SLA chronometers",
+      "Hairline-ruled split-deck density and inline collapsible Case Inspector drawer instead of lazy modals or shadow-heavy SaaS cards",
+      "Tactile 5-second cancelable SOS Panic Ring and persistent Safe Walk escort beacon within one thumb reach"
+    ],
+    "rules": [
+      {
+        "name": "The Emergency Crimson Rule",
+        "body": "Emergency Crimson (#C81E2B / #F87171) is never used for generic brand decoration, primary CTAs on non-emergency forms, or marketing badges.",
+        "section": "colors"
+      },
+      {
+        "name": "The Hairline Flat Rule",
+        "body": "Surfaces use 1px structural hairline borders (--border-hairline) with zero ghost drop shadows.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep tabular numerals (font-variant-numeric: tabular-nums) on all SLA timers, Safety Scores, and coordinates.",
+      "Do use sentence-case active-voice copy and clear synthetic-demo labels."
+    ],
+    "donts": [
+      "Don't use ALL-CAPS eyebrows, dark-mode neon cyber-ops gradients, or modal labyrinths over emergency actions.",
+      "Don't expose raw snake_case enum codes in user-facing tables or badges."
+    ]
+  }
+}

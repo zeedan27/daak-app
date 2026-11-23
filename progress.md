@@ -114,3 +114,44 @@
   - `npm run build` (`Next.js 16.4.6`) → compiled & prerendered `3/3` static routes cleanly.
   - `npm run lint` (`verify_connections.py --quick && verify_schema_rls.py`) → all `PASS`.
   - `uv run --directory apps/api pytest -v` → `17 passed in 0.79s` (0 failures).
+
+---
+
+## Phase 4: Polish (2026-11-23)
+
+### Impeccable 5-Dimension Audit Health Score (Post-Remediation)
+| # | Dimension | Score | Key Finding |
+|---|---|---|---|
+| 1 | Accessibility | 4/4 | Skip link, single `<h1>`, keyboard-activatable table rows (`.row-trigger-btn`), `Escape` drawer close, `aria-live` status/timer regions, `>= 24px` map pin targets, and WCAG AA Light/Dark contrast tokens (`--signal-emergency-fill: #991B1B` / `#FEF2F2` and `#091314` dark selection ink). |
+| 2 | Performance | 4/4 | `React.memo` on `SpatialMapDeck` & `CitizenPreviewDeck`, `useMemo`/`useCallback` memoization preventing 1s SLA-tick cascade re-renders, and deterministic `DEMO_BASE_TIMESTAMP_MS` SSR hydration (0 mismatch warnings). |
+| 3 | Theming | 4/4 | Complete `Civic Chalk` (light) + `Monsoon Slate` (dark) token parity across `globals.css`, `MOBILE_PALETTE`, and synced `.impeccable/design.json` (`schemaVersion: 2`) with explicit `color-scheme: light/dark`. |
+| 4 | Responsive Design | 4/4 | Collapsible `< 1024px` navigation drawer toggle (`aria-expanded`), `390×844` zero document horizontal overflow (`scrollWidth <= innerWidth`), and `48dp+` mobile touch targets. |
+| 5 | Implementation Integrity | 4/4 | `impeccable detect --json apps/web/src` returned `[]` (exit `0`); fixed 5s SOS countdown `useRef` closure freeze and False-Report Queue triage exclusion (`cleared`/`confirmed_false`). |
+| **Total** | | **20/20** | **Excellent (Phase 4 Polish Complete)** |
+
+**Implementation Integrity Verdict:** **PASS.** Implementation expresses the committed `"Dhaka Civic Dispatch & Municipal Enamel"` system (`DESIGN.md` & `.impeccable/surfaces/*`) coherently across `apps/web` and `apps/mobile` with zero mechanical detector findings.
+
+### Actions Taken
+1. **Slice 4.1 (`apps/web`, 5 source files + tests):**
+   - `apps/web/src/lib/opsLogic.ts` & `apps/web/tests/opsLogic.test.mts`: Added deterministic `DEMO_BASE_TIMESTAMP_MS` SSR anchor, `formatStatusLabel()` sentence-case formatter, and excluded already-triaged (`cleared` / `confirmed_false`) reports from `filterAndSortFalseReports` (caught during live browser audit and verified with new TDD unit tests).
+   - `apps/web/src/app/globals.css`: Added `color-scheme`, dark-mode emergency fill/ink contrast tokens (`#991B1B` / `#FEF2F2`), dark `::selection` contrast, browser-surface polish (`caret-color`, `accent-color`, `scrollbar-color`), `.skip-link`, `.row-trigger-btn`, `.prose-measure` (`70ch`), `.btn:disabled` styling, `< 1024px` collapsible mobile rail rules, and targeted `prefers-reduced-motion` rules.
+   - `apps/web/src/components/SpatialMapDeck.tsx`: Memoized with `React.memo`, raised interactive pin sizes to `>= 24px` (`30px` SOS), added `aria-pressed` and empty-filter status overlay.
+   - `apps/web/src/components/CitizenPreviewDeck.tsx`: Memoized with `React.memo`, fixed 5s SOS countdown freeze using `triggerSosRef`, added `role="timer"`/`aria-live="assertive"`, high-contrast emergency fill tokens, `aria-current` on active mobile tabs, and synthetic-data footer.
+   - `apps/web/src/app/page.tsx`: Eliminated SSR hydration mismatch, memoized derived lists and callbacks, added skip link + single `<h1>` + `Escape` drawer close + keyboard-focusable table rows + collapsible mobile nav drawer + Nearest Thana readout in SOS Inspector + anonymity badge in Report Inspector + empty False-Report triage state + role-lock helper notices.
+2. **Slice 4.2 (`apps/mobile`, 2 source files + tests):**
+   - `apps/mobile/src/citizenCore.ts`, `apps/mobile/App.tsx`, `apps/mobile/tests/citizenCore.test.mts`: Added contrast-safe `railCommitted`, `emergencyFill`, `onPrimary`, and `onEmergency` tokens for Light & Dark schemes and `tablist`/`tab`/`button` accessibility roles.
+3. **Sidecar Sync:** Generated `.impeccable/design.json` (`schemaVersion: 2`) matching built CSS tokens, `ds-` component snippets, and `DESIGN.md` narrative.
+
+### Verification Evidence (Fresh Post-Edit Outputs)
+- **Live Browser Audit (`http://localhost:3000`, `next start -p 3000`, `browser` subagent `a4a4dd53-060e-46e4-855c-4ee3140822bb`):**
+  - Console errors / uncaught page errors / React hydration warnings: **`0`** across the entire run.
+  - Desktop (`1440×900`) Light (`Civic Chalk`) & Dark (`Monsoon Slate`): 3-zone split-deck, live ticking `MM:SS` SLA chronometers (`02:54` → `02:56`), and Case Inspector Drawer Nearest Thana readout verified.
+  - Mobile (`390×844`): Nav starts collapsed (`aria-expanded="false"`), workspace visible above the fold, zero document horizontal overflow (`html`/`body`/`main` width `380px` inside `390px`), hamburger toggle open/close verified.
+  - All 5 UI states (`loading`, `empty`, `partial_error`, `fatal_error`, `live`) verified via `#ui-state-select`.
+  - Live E2E flow: Citizen 5s SOS countdown (`5 → 4 → 3`) & `Cancel SOS` → Safe Walk `Simulate timeout` → Police `SOS Monitor` `#342000` `00:15` SLA & `Claim alert` (`Claimed`, timeline updated) → Admin `False-Report Queue` (`Confirm false` badge `2 → 1`, `Clear & verify` badge `1 → 0`, empty `"All flagged reports have been triaged"` state) → Admin `Criminal Watchlist` (`Add watchlist entry` verified).
+- **Impeccable Detector:** `impeccable.cmd detect --json apps/web/src` → `[]` (`DETECT_EXIT=0`).
+- **Bundle Secret Hygiene Scan:** `Select-String` across `apps/web/src`, `apps/mobile`, and `apps/web/.next/static` for `SUPABASE_SERVICE_ROLE_KEY|service_role|GEMINI_API_KEY|DAAK_JWT_SECRET|BEGIN PRIVATE KEY` → `0` matches.
+- **Backend Tests:** `uv run --directory apps/api pytest -v` → `17 passed, 1 warning in 0.68s`.
+- **JS/TS Unit Tests:** `npm test` → `11 passed, 0 failed` (5 mobile + 6 web).
+- **Typecheck & Build:** `npm run typecheck` (`tsc --noEmit`) → exit `0`; `npm run build` (`Next.js 16.4.6`) → compiled & prerendered `3/3` routes cleanly.
+- **Lint / Hygienes & Security Audit:** `npm run lint` → 4/4 `PASS` (`verify_connections.py --quick`) + `PASS` (`verify_schema_rls.py`); `npm --prefix apps/web audit` → `found 0 vulnerabilities`.

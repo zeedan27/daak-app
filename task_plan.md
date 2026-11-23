@@ -28,7 +28,7 @@
 
 ---
 
-## Phase 2: C — Connections (Connectivity & Credentials) — In Progress
+## Phase 2: C — Connections (Connectivity & Credentials) — Complete
 - [x] Read `scope/references/config-templates.md` and `supabase/SKILL.md` before planning Phase 2
 - [x] Verify `supabase_mcp` and `context7` MCP connectivity (`resolve-library-id` for `@supabase/supabase-js`)
 - [x] Create `.agents/rules/ui-components.md` (with `trigger: glob` frontmatter), `.agents/mcp_config.json` (zero secrets), and `.agents/hooks.json` (Windows-safe)
@@ -40,7 +40,7 @@
 
 ---
 
-## Phase 3: O — Organization (The 3-Layer Build) — In Progress
+## Phase 3: O — Organization (The 3-Layer Build) — Complete
 - [x] Read Phase 3 skills (`scope/references/stack-matrix.md`, `scope/references/caching-and-scaling.md`, `test-driven-development`, `verification-before-completion`, `requesting-code-review`, `systematic-debugging`, `supabase-postgres-best-practices`, `vercel-react-best-practices`, `impeccable/reference/craft-floor.md`)
 - [x] Author Layer 1 Architecture SOPs (`architecture/data.md`, `architecture/auth.md`, `architecture/security.md`, `architecture/rate-limiting.md`, `architecture/caching.md`)
 - [x] **Slice 3.1:** Supabase PostGIS Schema, Default-Deny RLS, `security_invoker` Views, Storage Buckets & Bangladesh Demo Seed (`supabase/migrations/*`, `tools/verify_schema_rls.py`)
@@ -50,11 +50,16 @@
 - [x] **Slice 3.4:** Police & Admin Desktop Web (`apps/web`) — Shell, 1-Click Demo Role Switcher & Live SOS SLA Command Deck (`<= 5` code files)
 - [x] **Slice 3.5:** Police & Admin Desktop Web (`apps/web`) — Crime Heatmap, Report Review, 5-Factor False-Report Triage, Shift Handovers & Criminal Watchlist CRUD (`<= 5` code files)
 - [x] **Slice 3.6:** Citizen Mobile App + Expo Web Preview (`apps/mobile`) — Tactile 5s SOS Ring, Safe Walk Escort Timer, Incident Reporting + 1km Corroboration, Area Safety Score/Map & Bangla/Banglish DaakAI (`<= 5` code files)
-- [ ] **Phase 3 Checkpoint — Stop and obtain user confirmation before Phase 4**
+- [x] **Phase 3 Checkpoint — Stop and obtain user confirmation before Phase 4**
 
-## Phase 4: P — Polish (Refinement, UI & Quality) *(Placeholder)*
-- **Candidate Skills / Commands:** `impeccable`, `web-design-guidelines`, `vercel-react-best-practices`, `/browser`
-- **High-Level Goal:** Run `impeccable` (`detect`, `audit`, `polish`, `document`), WCAG 2.1 AA accessibility checks, 5-state completeness checks, and responsive viewport verification across mobile and desktop before Phase 4 user sign-off.
+## Phase 4: P — Polish (Refinement, UI & Quality) — In Progress
+- [x] Read Phase 4 skills (`impeccable` + `audit.md`, `polish.md`, `critique.md`, `document.md`, `craft-floor.md`; `web-design-guidelines`; `vercel-react-best-practices`) and run `impeccable context` & `impeccable detect --json apps/web/src`
+- [x] **Slice 4.1 (`apps/web`, 5 code files):** Fix hydration mismatch & 5s SOS countdown freeze bug; fix False-Report Queue triage exclusion; optimize re-renders; enforce WCAG 2.1 AA (skip link, single `<h1>`, keyboard-accessible table rows, `Escape` drawer close, `aria-live` regions, dark-mode contrast tokens, `>= 24px` map pin targets, `:disabled` states); add collapsible `< 1024px` mobile nav rail; add Nearest Thana to SOS Case Inspector Drawer, anonymity indicator to Report Inspector, sentence-case status labels, and queue empty states
+- [x] **Slice 4.2 (`apps/mobile`, 2 code files):** Fix dark-mode WCAG AA contrast tokens (`railCommitted`, `emergencyFill`, `onPrimary`, `onEmergency`) in `MOBILE_PALETTE` and `App.tsx`, plus tab ARIA roles
+- [x] Generate/sync `.impeccable/design.json` (`schemaVersion: 2`) matching built CSS tokens and `ds-` component snippets
+- [x] Live browser audit on `apps/web` (`1440×900` & `390×844`, Light & Dark, zero console/hydration errors, all 5 UI states, full Citizen → Police → Admin E2E flow)
+- [x] Bundle secret hygiene check + full verification suite (`impeccable detect`, `pytest`, `npm test`, `typecheck`, `build`, `lint`, `npm audit`) recorded in `progress.md`
+- [ ] **Phase 4 Checkpoint — Stop and obtain user confirmation before Phase 5**
 
 ## Phase 5: E — Execution (Deployment, CI/CD & Production Gate) — Gate 2 *(Placeholder)*
 - **Candidate Skills / Commands:** `scope/references/caching-and-scaling.md`, `scope/references/skills-and-safety.md` (Deploy Rule), `requesting-code-review`, Vercel/Render/Expo EAS Git deploys, `/browser`, `/learn`
