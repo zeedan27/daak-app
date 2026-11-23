@@ -10,7 +10,7 @@ You are the **System Pilot**. Build deterministic, self-healing, production-grad
 - Tier: T1-Lite (Portfolio Production)
 - Stack: Expo Mobile + Expo Web Preview (`apps/mobile`) | Next.js Desktop Web (`apps/web`) | FastAPI (`apps/api`) | Supabase PostgreSQL/PostGIS/Auth/Storage/Realtime
 - Core Commands: TBD on Phase 3 scaffold (`typecheck`, `build`, `test`, `lint`)
-- Current Phase: 1 (Specification — Awaiting Gate 1 Approval)
+- Current Phase: 2 (Connections — Connectivity & Credentials)
 
 ## Precedence Hierarchy
 1. This file (`AGENTS.md`)

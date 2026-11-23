@@ -74,3 +74,14 @@ Kept strictly read-only as a domain reference:
 | **Prompt injection & LLM quota drain on DaakAI** | System prompt leak or API key exhaustion | System prompt isolates retrieved report snippets as untrusted data; strict input length limit (`<= 500` chars), per-user rate limit on `/api/v1/ai/chat`, server-only `AI_PROVIDER_API_KEY`. |
 | **Private evidence photo/video leakage** | Unauthorized public download of crime scene media | `evidence-media` bucket is private; uploaded strictly under `{auth.uid()}/*`; accessed only via short-lived signed URLs for owner, `police`, or `admin`. |
 | **Secret leakage in Expo/Next client bundles** | Compromised `service_role` or AI keys | Strict `EXPO_PUBLIC_*` / `NEXT_PUBLIC_*` allowlist (only Supabase URL, Anon Key, and API Base URL); `.env*` gitignored; pre-Gate 2 secret scan. |
+
+## 7. Phase 2 Connectivity & Handshake Facts
+- **Supabase Cloud Project:** `daak-v2` (ID/ref: `ygdatgpfjephccykqqsc`, org: `xzhosimoxzsrjmrnbmsj`, region: `ap-south-1`, status: `ACTIVE_HEALTHY`, Postgres `17.12`, PostGIS `3.3.7`).
+- **Supabase API URL:** `https://ygdatgpfjephccykqqsc.supabase.co` (keys kept out of committed files; passed via env vars).
+- **Verified Handshakes:**
+  - `postgis` + `pg_trgm` active; `ST_Distance` between Dhanmondi (`90.3742, 23.7461`) and TSC (`90.3954, 23.7324`) returned `2640.88` meters.
+  - Supabase Auth (`/auth/v1/health` + `/auth/v1/settings`) HTTP `200` with publishable key; PostgREST OpenAPI root (`/rest/v1/`) confirmed locked (`HTTP 401` without `service_role`).
+  - `context7` MCP resolved `@supabase/supabase-js` (`/supabase/supabase-js`).
+  - `tools/verify_connections.py` passed in live, `--ci`, and `--quick` modes (hygiene, YAML `trigger: glob` frontmatter, structured JSON log secret redaction, Bangla/Banglish DaakAI deterministic fallback, Git + `.github/workflows/ci.yml`).
+- **Phase 3 Advisor Note:** `get_advisors(security)` noted `postgis` and `pg_trgm` in `public` (`spatial_ref_sys` RLS / `extension_in_public`). Address in Phase 3's initial SQL migration (`extensions` schema or explicit `REVOKE` on `spatial_ref_sys`).
+- **Remote Git Origin:** Deferred cleanly to user's GitHub repo link when ready to push (`ci.yml` already committed).

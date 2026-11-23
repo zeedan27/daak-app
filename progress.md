@@ -39,3 +39,25 @@
 - `impeccable.cmd surface-brief list` verified both `.impeccable/surfaces/citizen-mobile.md` and `.impeccable/surfaces/ops-web.md`.
 - `impeccable.cmd concept-seed --scope direction --mode operate` returned `ASSIGNED INDEX: 3`, `SEED REFERENCE: seed:4d73b1a176a6c703`.
 - All Phase 1 specification documents (`PRODUCT.md`, `DESIGN.md`, `architecture/schemas.md`, `architecture/decisions.md`, `findings.md`, `task_plan.md`) created/updated and committed for Gate 1 review.
+
+---
+
+## Phase 2: Connections (2026-11-23)
+
+### Actions Taken
+1. Read `scope/references/config-templates.md` and `supabase/SKILL.md`; updated `AGENTS.md` to Phase 2 and expanded Phase 2 checklist in `task_plan.md`.
+2. Created `.agents/rules/ui-components.md` (`trigger: glob`), `.agents/mcp_config.json` (zero secrets), `.agents/hooks.json` (Windows-safe), `.github/workflows/ci.yml` (`gitleaks` + Python hygiene job), and finalized `.env.example` (variable names only).
+3. Provisioned Supabase Cloud project `daak-v2` (`ygdatgpfjephccykqqsc`, `ap-south-1`, Postgres `17.12`, status `ACTIVE_HEALTHY`) via `supabase_mcp`.
+4. Enabled `postgis` (`3.3.7`) and `pg_trgm` and verified `ST_Distance` spatial query (`Dhanmondi -> TSC = 2640.88 m`). Ran `get_advisors(security)` and logged Phase 3 extension-schema note in `findings.md`.
+5. Built and ran `tools/verify_connections.py` across live, `--ci`, and `--quick` modes, plus verified `context7` MCP resolution of `@supabase/supabase-js`.
+
+### Verification Evidence
+- `python tools/verify_connections.py` (with env `SUPABASE_URL` & publishable key):
+  - `[PASS] hygiene: Hygiene, zero-secret config, and rule frontmatter verified`
+  - `[PASS] log_redaction: Structured JSON logging & secret redaction verified`
+  - `[PASS] daakai_fallback: DaakAI Bangla/Banglish fallback verified (area=Dhanmondi, thana=Dhanmondi Model Police Station)`
+  - `[PASS] git_and_ci: Git branch 'main' & CI workflow verified`
+  - `[PASS] supabase_handshake: Supabase Auth health+settings HTTP 200 & REST OpenAPI root locked (HTTP 401 without secret key) ({"version":"v2.198.0","name":"GoTrue","description":"GoTrue )`
+- `python tools/verify_connections.py --ci` exited `0` (all 5 checks `[PASS]`).
+- `python tools/verify_connections.py --quick` exited `0` (all 4 local checks `[PASS]`).
+- `git status` verified zero `.env` or secret files tracked/staged.

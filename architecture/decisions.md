@@ -63,3 +63,12 @@
 - **Context:** User authorized overriding visual design after applying `frontend-design` and `impeccable` (`concept-seed --scope direction --mode operate`, `seed:4d73b1a176a6c703`).
 - **Decision:** Reject generic dark-mode cyber-dashboards and template AI fonts; adopt "Dhaka Civic Dispatch & Municipal Enamel" (`Civic Chalk` `#F6F7F4` / `Monsoon Slate` `#11171A`, `Dhaka Civic Teal` `#0F514A` committed rail, `Emergency Crimson` `#C81E2B` strictly for SOS/breach, `Public Sans` + `JetBrains Mono` on web, and native `Roboto`/`SF Pro` on mobile) across `DESIGN.md` and `.impeccable/surfaces/*`.
 - **Consequences:** High outdoor daylight legibility on mobile, calm operational precision on desktop, and strict WCAG/native compliance.
+
+---
+
+### ADR-006: Supabase Cloud Project (`ap-south-1`) & Deterministic AI Fallback Handshake
+- **Status:** Accepted (Phase 2)
+- **Date:** 2026-11-23
+- **Context:** Daak v2 targets Bangladesh users and needs low-latency South Asia PostgreSQL/PostGIS hosting plus an AI triage endpoint that continues working cleanly in free-tier demos even if no paid LLM key is configured.
+- **Decision:** Provisioned Supabase Cloud project `daak-v2` (`ygdatgpfjephccykqqsc`) in `ap-south-1` (Mumbai) with `postgis` (`3.3.7`) and `pg_trgm`, and paired an OpenAI-compatible AI endpoint (`AI_BASE_URL` / `AI_MODEL` / `AI_API_KEY`) with a built-in deterministic Bangla/Banglish area & nearest-Thana safety fallback.
+- **Consequences:** Sub-100ms South Asia DB/Auth proximity and guaranteed zero-cost demo uptime for DaakAI regardless of external LLM key availability.

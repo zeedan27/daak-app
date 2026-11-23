@@ -10,7 +10,7 @@
 
 ---
 
-## Phase 1: S — Specification (Vision & Logic) — Awaiting Gate 1 Approval
+## Phase 1: S — Specification (Vision & Logic) — Complete (Gate 1 Approved)
 - [x] Conduct structured discovery (`/grill-me`) and lock Tier (`T1-Lite`), 4 creative features, Bangla/Banglish AI/search scope, pseudonymous reporting, and Demo Preview hosting
 - [x] Read UI design skills (`frontend-design`, `impeccable` + `init.md`, `new-work.md`, `new-work-world.md`, `operate.md`, `mode-operate.md`, `android.md`, `ios.md`)
 - [x] Author `PRODUCT.md` (`impeccable:product-schema 1`, platform `adaptive`)
@@ -20,17 +20,23 @@
 - [x] Complete 12-Layer Decision Table, Phase 2–5 planned skills/MCPs, and T1-Lite Threat Model Sketch in `findings.md`
 - [x] Record architectural decisions (`ADR-002` through `ADR-005`) in `architecture/decisions.md`
 
-### Gate 1 Approval Checklist (Must Be Approved by User Before Phase 2 / Code)
+### Gate 1 Approval Checklist (Approved 2026-11-23)
 - [x] Discovery, Tier (`T1-Lite`), 12-Layer Decision Table, Threat Sketch, and planned skills/packs recorded in `findings.md`
 - [x] Data schemas, permissions matrix, and API contracts defined in `architecture/schemas.md`
 - [x] `frontend-design` and `impeccable` `SKILL.md` files read via `read_file` and used to plan `PRODUCT.md`, `DESIGN.md`, and `.impeccable/surfaces/*`
-- [ ] **User explicitly approves Gate 1 Macro Blueprint to advance to Phase 2 (Connections)**
+- [x] **User explicitly approves Gate 1 Macro Blueprint to advance to Phase 2 (Connections)**
 
 ---
 
-## Phase 2: C — Connections (Connectivity & Credentials) *(Placeholder)*
-- **Candidate Skills / MCPs:** `scope/references/config-templates.md`, `supabase`, `context7` MCP, `supabase_mcp` (dev project only)
-- **High-Level Goal:** Expand connectivity plan in `task_plan.md`, verify `.env` hygiene across `apps/api`, `apps/web`, and `apps/mobile`, and execute minimal handshake checks for Supabase/PostGIS, Auth, FastAPI, AI provider, and remote Git/CI before stopping at Phase 2 checkpoint.
+## Phase 2: C — Connections (Connectivity & Credentials) — In Progress
+- [x] Read `scope/references/config-templates.md` and `supabase/SKILL.md` before planning Phase 2
+- [x] Verify `supabase_mcp` and `context7` MCP connectivity (`resolve-library-id` for `@supabase/supabase-js`)
+- [x] Create `.agents/rules/ui-components.md` (with `trigger: glob` frontmatter), `.agents/mcp_config.json` (zero secrets), and `.agents/hooks.json` (Windows-safe)
+- [x] Create `.github/workflows/ci.yml` (`gitleaks` secret scan + connection hygiene check) and finalize `.env.example` (variable names only)
+- [x] Provision Supabase Cloud project `daak-v2` in `ap-south-1` (`ACTIVE_HEALTHY`) and verify `postgis` + `pg_trgm` spatial handshake
+- [x] Create and execute `tools/verify_connections.py` (hygiene/frontmatter, JSON log redaction, Supabase Auth & REST health handshake, Bangla/Banglish DaakAI deterministic fallback handshake, Git/CI check)
+- [x] Record Phase 2 handshake results in `findings.md`, `architecture/decisions.md` (`ADR-006`), and `progress.md`
+- [ ] **Phase 2 Checkpoint — Stop and obtain user confirmation before Phase 3**
 
 ## Phase 3: O — Organization (The 3-Layer Build) *(Placeholder)*
 - **Candidate Skills / MCPs:** `scope/references/stack-matrix.md`, `supabase`, `supabase-postgres-best-practices`, `vercel-react-best-practices`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`, `requesting-code-review`, `context7` MCP

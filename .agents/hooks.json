@@ -1,0 +1,16 @@
+{
+  "verify-connections-at-stop": {
+    "enabled": true,
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"python\" tools/verify_connections.py --quick",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
