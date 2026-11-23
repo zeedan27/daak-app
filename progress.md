@@ -100,3 +100,7 @@
 - **TDD RED:** Wrote `apps/web/tests/opsLogic.test.mts` and ran `node --test`; failed with `ERR_MODULE_NOT_FOUND` for `opsLogic.ts`.
 - **TDD GREEN:** Created root `package.json`, `apps/web/package.json` (`next@16.4.6`, `react@19`, `typescript@5.8.2`), `tsconfig.json`, `next.config.mjs`, `src/lib/opsLogic.ts`, `src/app/globals.css` (`DESIGN.md` Civic Chalk + Monsoon Slate tokens), and `src/app/layout.tsx` (`Public Sans` + `JetBrains Mono`).
 - **Verification Evidence:** `npm --prefix apps/web audit` → `found 0 vulnerabilities`; `node --test apps/web/tests/opsLogic.test.mts` → `4 passed, 0 failed`.
+
+### Slice 3.5 (Police & Admin 3-Zone Command Workspace + Citizen Web Preview)
+- Implemented `apps/web/src/components/SpatialMapDeck.tsx` (Dhaka PostGIS SVG/grid map + Thana stations + clickable SOS & incident clusters), `apps/web/src/components/CitizenPreviewDeck.tsx` (390×844 mobile-framed Citizen Expo Web Preview with 5s cancelable SOS ring, Safe Walk beacon, 1 km corroboration, anonymous reporting, and Bangla/Banglish DaakAI), and `apps/web/src/app/page.tsx` (3-zone command desk, 1-click Demo Role Switcher, Light/Dark theme toggle, 5-state UI switcher, collapsible Case Inspector Drawer, Shift Handovers, False-Report Queue, Criminal Watchlist CRUD, Analytics & Audit Logs).
+- **Verification Evidence:** `npm --prefix apps/web run typecheck` (`tsc --noEmit`) → exit `0`; `npm --prefix apps/web run build` (`Next.js 16.4.6`) → compiled & prerendered `/` + `/_not-found`; `node --test apps/web/tests/opsLogic.test.mts` → `4 passed, 0 failed`.
