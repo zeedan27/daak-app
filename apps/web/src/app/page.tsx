@@ -1187,7 +1187,7 @@ export default function DaakCommandPortal() {
               {section === "false_reports" && "Automated 5-Factor False-Report Triage"}
               {section === "criminals" && "Criminal Watchlist Management"}
               {section === "analytics" && "Operational Analytics & Audit Trail"}
-              {section === "citizen_preview" && "Citizen Mobile App (Expo Web Preview)"}
+              {section === "citizen_preview" && "Citizen Safety Command — Full Web & Handset"}
             </h1>
             <p className="daak-topbar-sub">
               <span>
@@ -1242,7 +1242,7 @@ export default function DaakCommandPortal() {
           </div>
         </header>
 
-        <div className={`daak-workspace ${showDrawer ? "" : "no-drawer"}`}>
+        <div className={`daak-workspace ${showDrawer ? "" : "no-drawer"} ${section === "citizen_preview" ? "is-citizen-full" : ""}`}>
           <main id="main-content" tabIndex={-1} className="daak-center">
             {uiState === "loading" && (
               <div className="surface-panel" style={{ padding: "18px", display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -1264,7 +1264,12 @@ export default function DaakCommandPortal() {
                 </p>
                 <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   <button type="button" className="btn btn-primary" onClick={() => setSection("citizen_preview")}>
-                    Open Citizen Preview
+                    <span>Open Citizen Preview</span>
+                    <span className="m-arrow" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M2.5 7h9M8 3.5L11.5 7 8 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
                   </button>
                   <button type="button" className="btn" onClick={() => setUiState("live")}>
                     Show live demo data
@@ -1351,36 +1356,41 @@ export default function DaakCommandPortal() {
                             }
                           }}
                         >
-                          Claim priority SOS
+                          <span>Claim priority SOS</span>
+                          <span className="m-arrow" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M2.5 7h9M8 3.5L11.5 7 8 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </span>
                         </button>
                       </div>
                     )}
 
                     <div className="kpi-strip">
-                      <div className="kpi-cell">
+                      <div className="kpi-cell m-lift">
                         <p className="kpi-label">Active SOS</p>
-                        <p className="kpi-val tabular" style={{ color: "var(--signal-emergency)" }}>
+                        <p className="kpi-val tabular" style={{ color: "var(--sos)" }}>
                           {unclaimedActiveCount}
                         </p>
                         <span className="kpi-meta">Awaiting unit claim</span>
                       </div>
-                      <div className="kpi-cell">
+                      <div className="kpi-cell m-lift">
                         <p className="kpi-label">Claimed / En Route</p>
                         <p className="kpi-val tabular">
                           {dataset.distressSignals.filter((s) => s.status === "claimed" || s.status === "responding").length}
                         </p>
                         <span className="kpi-meta">Active Dhaka patrols</span>
                       </div>
-                      <div className="kpi-cell">
+                      <div className="kpi-cell m-lift">
                         <p className="kpi-label">Safe Walk Escalations</p>
                         <p className="kpi-val tabular">
                           {dataset.distressSignals.filter((s) => s.trigger_source === "safe_walk_timeout").length}
                         </p>
                         <span className="kpi-meta">Missed check-in triggers</span>
                       </div>
-                      <div className="kpi-cell">
+                      <div className="kpi-cell m-lift">
                         <p className="kpi-label">Target SLA</p>
-                        <p className="kpi-val mono">05:00</p>
+                        <p className="kpi-val font-mono">05:00</p>
                         <span className="kpi-meta">Max 10:00 breach threshold</span>
                       </div>
                     </div>

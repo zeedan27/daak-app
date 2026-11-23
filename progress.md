@@ -232,3 +232,23 @@
   - Verified `0` console errors, `0` uncaught page errors, `0` failed network requests.
   - Caught and fixed CARTO `"API KEY REQUIRED"` placeholder tiles by switching to OpenStreetMap standard tiles (`20` tile requests all HTTP `200` rendering real Dhaka streets in Light & Dark mode) and fixed `390×844` SOS Monitor grid expansion (`380px` rendered width, `0` overflow).
   - Verified Predictive Alerts, 3-Factor Safety Gauge, 5-Factor False-Report triage (`2 → 1 → 0`), Citizen Mobile `Home` / `Map` / `Reports` / `DaakAI` tabs, and `390×844` mobile layout.
+
+---
+
+## `design-taste-frontend` (`tasteskill 2.5.1`) UI & Citizen Bento Redesign (2026-11-24)
+
+### Actions Taken
+1. **Typography & Document Traits (`apps/web/src/app/layout.tsx`):** Loaded self-hosted `Funnel_Display`, `Funnel_Sans`, and `DM_Mono` via `next/font/google` and set `data-type="software"`, `data-radius="soft"`, `data-buttons="solid"` on `<html>`.
+2. **Design System Tokens & Primitives (`apps/web/src/app/globals.css`):** Implemented the dealt `teal-on-paper` Light palette (`#f7f9f8` / `#ebf0ee` / `#063b42` / `#06525c`) paired with `green-black-bone` Dark mode (`#0b1113` / `#121b1e` / `#162125` / `#e8eeec` / `#2dd4bf`), `.ts-card` (`20px` soft radius, specular `inset 0 1px 0` edge, `.m-lift` hover lift), `.ts-panel--lit` radial-mesh stage, `.m-arrow` SVG draw animation, `.panel--device` / `.panel__bar` map framing, `.citizen-stage` / `.citizen-bento-grid`, concentric `.sos-reactor-btn`, `.phone-chassis`, out-of-flow `.skip-link`, and `.daak-nav-group` mobile collapse rules.
+3. **Full-Screen Citizen Command Bento (`apps/web/src/components/CitizenPreviewDeck.tsx`):** Replaced the cramped `396px` handset-only container with a **Full Web Surface (Default)** 12-column Split Hero + 2×2 Bento featuring a concentric `SOS 999` panic ring, Safe Walk Escort creator/controls, embedded Dhaka OpenStreetMap (`SpatialMapDeck`), 3-factor transparent safety formula bars, Nearby Verified Alerts with 1 km `I saw this too` corroboration, a radial-mesh `.ts-panel--lit` DaakAI Safety Copilot with Bangla/Banglish prompt chips, an interactive Pin-Drop Crime Reporter, and Trusted Contacts (`3/3`) & Wanted Watchlist, plus an optional `Mobile Handset Frame` toggle (`410px` handset chassis).
+4. **Spatial Map & Command Shell Refinements (`SpatialMapDeck.tsx`, `page.tsx`):** Upgraded `SpatialMapDeck` to `.panel--device` + `.panel__bar` and unified CSS variables, topbar `.m-arrow` primary CTAs, `.kpi-cell.m-lift` cards, and `is-citizen-full` full-width workspace layout.
+
+### Verification Evidence (Post-Final-Edit)
+- **Unit Tests:** `npm test` → `17 passed, 0 failed` (`opsLogic.test.mts` + `citizenCore.test.mts`).
+- **Backend Tests:** `uv run --directory apps/api pytest -v` → `20 passed, 1 warning in 0.74s`.
+- **Typecheck & Build:** `npm run typecheck` → exit `0`; `npm run build` (`Next.js 16.4.6 Turbopack`) → compiled (`253ms`) & prerendered `3/3` static routes cleanly.
+- **Lint & Hygiene:** `npm run lint` → 4/4 `PASS` (`verify_connections.py --quick`) + `PASS` (`verify_schema_rls.py`).
+- **Impeccable Detector:** `impeccable.cmd detect --json apps/web/src` → `[]` (exit `0`).
+- **Live Browser & Screenshot Inspection (`http://localhost:3000`, `browser` subagent `0f938146` + direct PNG inspection via `read_file`):**
+  - Confirmed `Funnel Display` / `Funnel Sans` / `DM Mono` `.woff2` fonts loaded (`HTTP 200`), `0` console errors, `0` failed requests, visible OpenStreetMap street tiles in Light & Dark modes, and `0px` horizontal overflow at `390×844` (`375.2px` bounding box, collapsed hamburger drawer).
+  - Verified desktop `1440×900` Split Hero (`SOS 999` + `Safe Walk` | `Dhaka Metro Street & Heatmap`), 2×2 Bento (`Nearby Verified Alerts` | radial-mesh `DaakAI Safety Copilot`), `410px` Dark Mode `Mobile Handset Frame` (`#26393f` bezel, `#121b1e` HUD controls), and clean `10px` top-left brand/badge and topbar status spacing.

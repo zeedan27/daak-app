@@ -1,28 +1,43 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Public_Sans } from "next/font/google";
+import { DM_Mono, Funnel_Display, Funnel_Sans } from "next/font/google";
 import "./globals.css";
 
-const publicSans = Public_Sans({
+const funnelDisplay = Funnel_Display({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-public-sans",
+  variable: "--font-funnel-display",
+  display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const funnelSans = Funnel_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-jetbrains-mono",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-funnel-sans",
+  display: "swap",
+});
+
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-dm-mono",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Daak v2 — Bangladesh Civic Dispatch & Safety Command",
   description:
-    "Police dispatch command deck, PostGIS safety intelligence, and Citizen safety preview for Bangladesh.",
+    "Police dispatch command deck, PostGIS safety intelligence, and Citizen safety command for Bangladesh.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${publicSans.variable} ${jetbrainsMono.variable}`}>
+    <html
+      lang="en"
+      data-type="software"
+      data-radius="soft"
+      data-buttons="solid"
+      className={`${funnelDisplay.variable} ${funnelSans.variable} ${dmMono.variable}`}
+    >
       <body>{children}</body>
     </html>
   );

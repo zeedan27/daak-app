@@ -385,25 +385,29 @@ function SpatialMapDeck({
   }, [center.lat, center.lng, size.height, size.width, zoom]);
 
   return (
-    <section className="surface-panel map-shell" aria-label="Dhaka PostGIS Spatial Map and Heatmap">
-      {/* Header & Filters */}
-      <div className="map-toolbar">
-        <div>
-          <h2 className="section-header-title">Dhaka Metro Interactive Street &amp; Heatmap</h2>
-          <p className="section-header-sub">
-            PostGIS SRID 4326 · {activeSignals.length} live SOS · {visibleReports.length} incident pins · Zoom {zoom}x
-            {gpsStatus ? ` · ${gpsStatus}` : ""}
-          </p>
+    <section className="panel--device" aria-label="Dhaka PostGIS Spatial Map and Heatmap">
+      {/* Structured Cartographic Device Bar */}
+      <div className="panel__bar">
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+          <span className="panel__dot" aria-hidden="true" />
+          <div>
+            <h2 className="section-header-title">Dhaka Metro Street &amp; Heatmap</h2>
+            <p className="section-header-sub">
+              PostGIS SRID 4326 · {activeSignals.length} live SOS · {visibleReports.length} incident pins · Zoom{" "}
+              <span className="font-mono">{zoom}x</span>
+              {gpsStatus ? ` · ${gpsStatus}` : ""}
+            </p>
+          </div>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          <label htmlFor="map-category-filter" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
+          <label htmlFor="map-category-filter" style={{ fontSize: "0.8125rem", color: "var(--p-muted)", fontWeight: 600 }}>
             Crime
           </label>
           <select
             id="map-category-filter"
             className="field-select"
-            style={{ width: "auto", padding: "5px 8px", fontSize: "0.75rem" }}
+            style={{ width: "auto", padding: "6px 10px", fontSize: "0.8125rem" }}
             value={categoryFilter}
             onChange={(e) => onCategoryFilterChange(e.target.value)}
           >
@@ -416,13 +420,13 @@ function SpatialMapDeck({
 
           {!compact && (
             <>
-              <label htmlFor="map-time-filter" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+              <label htmlFor="map-time-filter" style={{ fontSize: "0.8125rem", color: "var(--p-muted)", fontWeight: 600 }}>
                 Window
               </label>
               <select
                 id="map-time-filter"
                 className="field-select"
-                style={{ width: "auto", padding: "5px 8px", fontSize: "0.75rem" }}
+                style={{ width: "auto", padding: "6px 10px", fontSize: "0.8125rem" }}
                 value={timeWindow}
                 onChange={(e) => setTimeWindow(e.target.value as "all" | "24h" | "7d" | "30d")}
               >
@@ -447,6 +451,8 @@ function SpatialMapDeck({
           </button>
         </div>
       </div>
+
+      <div className="map-shell">
 
       {/* Quick Dhaka Division Jump Chips & Layer Toggles */}
       <div className="map-area-strip">
@@ -596,7 +602,7 @@ function SpatialMapDeck({
                     }}
                   >
                     <strong>{m.title}</strong>
-                    <span style={{ color: "var(--ink-secondary)" }}>{m.sub}</span>
+                    <span style={{ color: "var(--p-muted)" }}>{m.sub}</span>
                   </button>
                 ))}
               </div>
@@ -668,11 +674,11 @@ function SpatialMapDeck({
                   gap: "5px",
                   padding: "3px 7px",
                   borderRadius: "6px",
-                  backgroundColor: "var(--bg-surface)",
-                  border: "1px solid var(--border-strong)",
+                  backgroundColor: "var(--p-card)",
+                  border: "1px solid var(--c-border-strong)",
                   fontSize: "0.6875rem",
                   fontWeight: 700,
-                  color: "var(--ink-primary)",
+                  color: "var(--p-ink)",
                   pointerEvents: "none",
                   zIndex: 5,
                 }}
@@ -682,7 +688,7 @@ function SpatialMapDeck({
                     width: "7px",
                     height: "7px",
                     borderRadius: "999px",
-                    backgroundColor: "var(--bg-rail-committed)",
+                    backgroundColor: "var(--p-accent)",
                   }}
                 />
                 {station.name_en.replace(" Model Police Station", "").replace(" Police Station", "")}
@@ -708,8 +714,8 @@ function SpatialMapDeck({
             const isSelected = selectedId === report.id;
             const color =
               report.severity === "critical" || report.severity === "high"
-                ? "var(--signal-warning)"
-                : "var(--signal-info)";
+                ? "var(--amber)"
+                : "var(--p-accent)";
             return (
               <button
                 key={report.id}
@@ -730,7 +736,7 @@ function SpatialMapDeck({
                   color: "#ffffff",
                   fontSize: "0.6875rem",
                   fontWeight: 700,
-                  border: isSelected ? "2px solid var(--ink-primary)" : "2px solid var(--bg-surface)",
+                  border: isSelected ? "2px solid var(--p-ink)" : "2px solid var(--p-card)",
                   cursor: "pointer",
                   zIndex: isSelected ? 9 : 6,
                   display: "flex",
@@ -780,13 +786,11 @@ function SpatialMapDeck({
                     width: isSelected ? "36px" : "32px",
                     height: isSelected ? "36px" : "32px",
                     borderRadius: "999px",
-                    backgroundColor: "var(--signal-emergency-fill)",
-                    color: "var(--signal-emergency-on-fill)",
+                    backgroundColor: "var(--sos)",
+                    color: "#ffffff",
                     fontSize: "0.625rem",
                     fontWeight: 700,
-                    border: isSelected
-                      ? "2px solid var(--ink-primary)"
-                      : "2px solid var(--signal-emergency-on-fill)",
+                    border: isSelected ? "2px solid var(--p-ink)" : "2px solid #ffffff",
                     cursor: "pointer",
                     zIndex: 10,
                     display: "flex",
@@ -869,14 +873,14 @@ function SpatialMapDeck({
               <>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                   <span className="pill pill-breach">Live SOS · {formatStatusLabel(selectedSosItem.status)}</span>
-                  <span className="mono" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                  <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--p-muted)" }}>
                     {selectedSosItem.lat.toFixed(4)}, {selectedSosItem.lng.toFixed(4)}
                   </span>
                 </div>
-                <strong style={{ fontSize: "0.8125rem" }}>
+                <strong style={{ fontSize: "0.875rem" }}>
                   {selectedSosItem.area_name} — {selectedSosItem.citizen_name}
                 </strong>
-                <span style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                <span style={{ fontSize: "0.8125rem", color: "var(--p-muted)" }}>
                   {selectedSosItem.note}
                 </span>
               </>
@@ -886,12 +890,12 @@ function SpatialMapDeck({
                   <span className="pill pill-warning">
                     {formatStatusLabel(selectedReportItem.category)} · {formatStatusLabel(selectedReportItem.severity)}
                   </span>
-                  <span className="mono" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                  <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--p-muted)" }}>
                     {selectedReportItem.corroboration_count} witnesses
                   </span>
                 </div>
-                <strong style={{ fontSize: "0.8125rem" }}>{selectedReportItem.title}</strong>
-                <span style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                <strong style={{ fontSize: "0.875rem" }}>{selectedReportItem.title}</strong>
+                <span style={{ fontSize: "0.8125rem", color: "var(--p-muted)" }}>
                   {selectedReportItem.address_text ?? selectedReportItem.area_name}
                 </span>
               </>
@@ -901,8 +905,8 @@ function SpatialMapDeck({
 
         {onPickLocation && (
           <div className="map-callout">
-            <strong style={{ fontSize: "0.75rem" }}>Tap map to drop incident pin</strong>
-            <span className="mono" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+            <strong style={{ fontSize: "0.8125rem" }}>Tap map to drop incident pin</strong>
+            <span className="font-mono" style={{ fontSize: "0.75rem", color: "var(--p-muted)", display: "block" }}>
               {pickedPoint
                 ? `${pickedPoint.lat.toFixed(4)}, ${pickedPoint.lng.toFixed(4)}`
                 : "Defaulting to selected Dhaka division"}
@@ -918,11 +922,11 @@ function SpatialMapDeck({
               left: "12px",
               bottom: "42px",
               padding: "6px 10px",
-              borderRadius: "6px",
-              backgroundColor: "var(--bg-surface)",
-              border: "1px solid var(--border-hairline)",
+              borderRadius: "8px",
+              backgroundColor: "var(--p-card)",
+              border: "1px solid var(--c-border)",
               fontSize: "0.75rem",
-              color: "var(--ink-secondary)",
+              color: "var(--p-muted)",
               zIndex: 14,
             }}
           >
@@ -934,33 +938,35 @@ function SpatialMapDeck({
           © OpenStreetMap contributors
         </div>
       </div>
+      </div>
 
       {/* Legend */}
       <div
         style={{
           display: "flex",
           flexWrap: "wrap",
-          gap: "14px",
-          padding: "9px 16px",
-          borderTop: "1px solid var(--border-hairline)",
-          fontSize: "0.75rem",
-          color: "var(--ink-secondary)",
+          gap: "16px",
+          padding: "11px 18px",
+          borderTop: "1px solid var(--c-border)",
+          background: "var(--p-surface)",
+          fontSize: "0.8125rem",
+          color: "var(--p-muted)",
         }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "var(--signal-emergency)" }} />
+          <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "var(--sos)" }} />
           Live SOS beacon
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "var(--signal-warning)" }} />
+          <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "var(--amber)" }} />
           High-severity / heat core
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "var(--signal-info)" }} />
+          <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "var(--p-accent)" }} />
           Standard report (witness count)
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-          <span style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: "var(--bg-rail-committed)" }} />
+          <span style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: "var(--p-accent)" }} />
           Dhaka Thana station
         </span>
       </div>

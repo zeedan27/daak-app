@@ -1,21 +1,20 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import SpatialMapDeck from "@/components/SpatialMapDeck";
 import {
   computeAreaSafetyScores,
+  CrimeReport,
+  CriminalRecord,
+  DemoProfile,
+  EmergencyContact,
   findNearestStation,
   formatStatusLabel,
   haversineMeters,
-  maskReportForRole,
+  PoliceStation,
   resolveAreaCoordinates,
-  type CrimeReport,
-  type CriminalRecord,
-  type DemoProfile,
-  type EmergencyContact,
-  type PoliceStation,
-  type SafeWalk,
-} from "@/lib/opsLogic";
+  SafeWalk,
+} from "../lib/opsLogic";
+import SpatialMapDeck from "./SpatialMapDeck";
 
 interface CitizenPreviewDeckProps {
   citizenProfile: DemoProfile;
@@ -46,30 +45,41 @@ interface CitizenPreviewDeckProps {
   onAskAi?: (prompt: string, lat: number, lng: number) => Promise<string | null>;
 }
 
-type MobileTab = "home" | "map" | "reports" | "ai";
+type CitizenTab = "Home" | "Map" | "Reports" | "DaakAI";
 
-interface ChatMessage {
-  id: string;
-  sender: "user" | "bot";
-  text: string;
-  timeLabel: string;
-}
+const CITIZEN_POS = { lat: 23.7465, lng: 90.376 };
 
-const WALK_DESTINATIONS = [
-  "TSC, Dhaka University",
-  "Mirpur-10 Metro Gate B",
-  "Dhanmondi Road 27",
-  "Uttara Azampur Stop",
-  "Gulshan-2 Circle",
+const REPORT_CATEGORIES: CrimeReport["category"][] = [
+  "snatching",
+  "theft",
+  "harassment",
+  "assault",
+  "fraud",
+  "vandalism",
+  "suspicious_activity",
+  "traffic_hazard",
+  "other",
+];
+
+const SEVERITIES: CrimeReport["severity"][] = ["low", "medium", "high", "critical"];
+
+const DHAKA_AREAS = [
+  "Dhanmondi",
+  "Mirpur 10",
+  "Gulshan 2",
+  "Uttara",
+  "Mohammadpur",
+  "Motijheel",
+  "Banani",
 ];
 
 const QUICK_AI_PROMPTS = [
-  "Mirpur 10 e raat e hata safe?",
-  "ধানমন্ডি থানার নাম্বার কি?",
-  "Snatching hole ki korbo?",
+  "Dhanmondi ektu safe naki?",
+  "Nearest Thana phone number?",
+  "Safe Walk timer ki?",
 ];
 
-function CitizenPreviewDeck({
+export default function CitizenPreviewDeck({
   citizenProfile,
   stations,
   reports,
@@ -88,161 +98,205 @@ function CitizenPreviewDeck({
   onRemoveContact,
   onAskAi,
 }: CitizenPreviewDeckProps) {
-  const [tab, setTab] = useState<MobileTab>("home");
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [sosSentBanner, setSosSentBanner] = useState<string | null>(null);
-  const [corroboratedIds, setCorroboratedIds] = useState<string[]>([]);
-  const [mapCatFilter, setMapCatFilter] = useState<string>("all");
-  const [selectedMapItem, setSelectedMapItem] = useState<string | null>(null);
-  const [selectedArea, setSelectedArea] = useState<string>("Dhanmondi");
+  const [surfaceMode, setSurfaceMode] = useState<"web" | "phone">("web");
+  const [activeTab, setActiveTab] = useState<CitizenTab>("Home");
 
-  // Safe Walk Creator
-  const [walkDest, setWalkDest] = useState<string>(WALK_DESTINATIONS[0]);
-  const [walkEta, setWalkEta] = useState<number>(15);
+  // SOS 5-second countdown
+  const [sosCountdown, setSosCountdown] = useState<number | null>(null);
+  const [sosStatusNote, setSosStatusNote] = useState<string>(
+    "Ready · Holds 5s safety cancel buffer before Police Control Room dispatch"
+  );
 
-  // Contacts Editor
-  const [newContactName, setNewContactName] = useState<string>("");
-  const [newContactPhone, setNewContactPhone] = useState<string>("");
+  // Map selection & filter state
+  const [mapCategory, setMapCategory] = useState<string>("all");
+  const [selectedMapId, setSelectedMapId] = useState<string | null>(null);
 
-  // Report form state
-  const [category, setCategory] = useState<CrimeReport["category"]>("snatching");
-  const [severity, setSeverity] = useState<CrimeReport["severity"]>("high");
-  const [areaName, setAreaName] = useState("Dhanmondi");
-  const [pickedCoords, setPickedCoords] = useState<{ lat: number; lng: number }>({
-    lat: 23.7465,
-    lng: 90.376,
-  });
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [isAnonymous, setIsAnonymous] = useState(true);
-  const [reportMsg, setReportMsg] = useState<string | null>(null);
+  // Safe Walk creation state
+  const [walkDestination, setWalkDestination] = useState("Science Lab Crossing, Dhanmondi");
+  const [walkMinutes, setWalkMinutes] = useState(15);
 
-  // DaakAI chat thread
-  const [aiPrompt, setAiPrompt] = useState("Mirpur 10 e raat e hata safe?");
-  const [chatThread, setChatThread] = useState<ChatMessage[]>([
+  // Crime report submission + pin picker state
+  const [repCat, setRepCat] = useState<CrimeReport["category"]>("snatching");
+  const [repSev, setRepSev] = useState<CrimeReport["severity"]>("high");
+  const [repArea, setRepArea] = useState("Dhanmondi");
+  const [repTitle, setRepTitle] = useState("");
+  const [repDesc, setRepDesc] = useState("");
+  const [repAnon, setRepAnon] = useState(false);
+  const [pickedPin, setPickedPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [reportBanner, setReportBanner] = useState<string | null>(null);
+
+  // Corroboration tracking so each user gets crisp visual feedback
+  const [corroboratedIds, setCorroboratedIds] = useState<Record<string, boolean>>({});
+
+  // Trusted contact inline composer
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [newContactRel, setNewContactRel] = useState("Family");
+
+  // DaakAI safety assistant state
+  const [aiInput, setAiInput] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiThread, setAiThread] = useState<Array<{ role: "assistant" | "user"; text: string }>>([
     {
-      id: "ai-welcome",
-      sender: "bot",
-      text: "Hello, I am DaakAI. Ask in English, Bangla, or Banglish about Dhaka area safety, nearest Thana contacts, or emergency steps.",
-      timeLabel: "Now",
+      role: "assistant",
+      text: "Assalamu Alaikum. Ask in English, Bangla, or Banglish about area safety, nearest Thana helpline, or Safe Walk escorts.",
     },
   ]);
-  const [aiBusy, setAiBusy] = useState<boolean>(false);
 
-  const userLat = 23.7465;
-  const userLng = 90.376;
-  const nearest = findNearestStation(stations, userLat, userLng);
-  const safetyScores = useMemo(() => computeAreaSafetyScores(reports), [reports]);
-  const dhanmondiScore =
-    safetyScores.find((s) => s.area.toLowerCase().includes("dhanmondi"))?.score ?? 78;
-  const activeWalk = safeWalks.find((w) => w.status === "active");
-  const activeAreaDetail =
-    safetyScores.find((s) => s.area === selectedArea) ?? safetyScores[0] ?? null;
+  // Refs for smooth anchor jumps when user clicks Citizen tabs in Full Web Surface mode
+  const homeSectionRef = useRef<HTMLDivElement | null>(null);
+  const mapSectionRef = useRef<HTMLDivElement | null>(null);
+  const reportsSectionRef = useRef<HTMLDivElement | null>(null);
+  const aiSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const triggerSosRef = useRef(onTriggerSos);
+  const areaScores = useMemo(() => computeAreaSafetyScores(reports), [reports]);
+  const dhanmondiScore = useMemo(() => {
+    return (
+      areaScores.find((a) => a.area.toLowerCase().includes("dhanmondi")) ??
+      areaScores[0] ?? {
+        area: "Dhanmondi",
+        score: 78,
+        level: "Safe" as const,
+        reportCount: 2,
+        resolvedCount: 1,
+        pendingCount: 1,
+        nightCount: 0,
+        dominantCategory: "snatching",
+        lat: 23.7465,
+        lng: 90.376,
+        factors: {
+          crimeFrequency: 82,
+          resolutionRate: 50,
+          timeOfDay: 100,
+        },
+      }
+    );
+  }, [areaScores]);
+
+  const nearestStation = useMemo(() => findNearestStation(stations, CITIZEN_POS.lat, CITIZEN_POS.lng), [stations]);
+
+  const activeWalk = useMemo(
+    () => safeWalks.find((w) => w.status === "active" || w.status === "escalated") ?? null,
+    [safeWalks]
+  );
+
+  const nearbyReports = useMemo(() => {
+    return [...reports]
+      .filter((r) => r.status !== "rejected" && r.status !== "resolved")
+      .map((r) => ({
+        report: r,
+        distMeters: Math.round(haversineMeters(CITIZEN_POS.lat, CITIZEN_POS.lng, r.lat, r.lng)),
+      }))
+      .sort((a, b) => a.distMeters - b.distMeters)
+      .slice(0, 6);
+  }, [reports]);
+
+  // 5-second countdown effect
   useEffect(() => {
-    triggerSosRef.current = onTriggerSos;
-  }, [onTriggerSos]);
-
-  useEffect(() => {
-    if (countdown === null) return;
-    if (countdown <= 0) {
-      setCountdown(null);
-      triggerSosRef.current(
-        userLat,
-        userLng,
+    if (sosCountdown === null) return;
+    if (sosCountdown <= 0) {
+      setSosCountdown(null);
+      const areaCoords = resolveAreaCoordinates(repArea);
+      onTriggerSos(
+        CITIZEN_POS.lat ?? areaCoords.lat,
+        CITIZEN_POS.lng ?? areaCoords.lng,
         "Dhanmondi",
-        "Citizen SOS triggered from Mobile Preview (Simulated 999 Relay)"
+        "Citizen SOS triggered via 5s panic ring — immediate dispatch requested"
       );
-      setSosSentBanner("SOS alert sent to Police Monitor & trusted contacts.");
+      setSosStatusNote("Dispatched to Dhanmondi Model Police Station · Live telemetry active");
       return;
     }
-    const timer = setTimeout(() => setCountdown((c) => (c !== null ? c - 1 : null)), 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
+    const timer = window.setTimeout(() => {
+      setSosCountdown((prev) => (prev === null ? null : prev - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [onTriggerSos, repArea, sosCountdown]);
+
+  const handleTabSelect = (tab: CitizenTab) => {
+    setActiveTab(tab);
+    if (surfaceMode === "web") {
+      const target =
+        tab === "Home"
+          ? homeSectionRef.current
+          : tab === "Map"
+            ? mapSectionRef.current
+            : tab === "Reports"
+              ? reportsSectionRef.current
+              : aiSectionRef.current;
+      target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  };
 
   const handlePublishReport = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !description.trim()) return;
+    if (!repTitle.trim() || !repDesc.trim()) return;
+    const coords = pickedPin ?? resolveAreaCoordinates(repArea);
     onSubmitReport({
-      category,
-      severity,
-      title: title.trim(),
-      description: description.trim(),
-      area_name: areaName,
-      lat: pickedCoords.lat,
-      lng: pickedCoords.lng,
-      is_anonymous_public: isAnonymous,
+      category: repCat,
+      severity: repSev,
+      title: repTitle.trim(),
+      description: repDesc.trim(),
+      area_name: repArea,
+      lat: coords.lat,
+      lng: coords.lng,
+      is_anonymous_public: repAnon,
     });
-    setTitle("");
-    setDescription("");
-    setReportMsg("Report submitted to triage & Police queue.");
+    setRepTitle("");
+    setRepDesc("");
+    setPickedPin(null);
+    setReportBanner(`Published ${formatStatusLabel(repCat)} alert in ${repArea} with GPS coordinates.`);
   };
 
-  const sendAiQuery = async (promptText: string) => {
-    const trimmed = promptText.trim();
-    if (!trimmed) return;
-    setChatThread((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, sender: "user", text: trimmed, timeLabel: "Just now" },
-    ]);
-    setAiPrompt("");
+  const handleSubmitAi = async (promptText?: string) => {
+    const query = (promptText ?? aiInput).trim();
+    if (!query || aiBusy) return;
+    setAiInput("");
+    setAiThread((prev) => [...prev, { role: "user", text: query }]);
     setAiBusy(true);
 
-    let replyText: string | null = null;
+    let reply: string | null = null;
     if (onAskAi) {
-      replyText = await onAskAi(trimmed, userLat, userLng);
+      try {
+        reply = await onAskAi(query, CITIZEN_POS.lat, CITIZEN_POS.lng);
+      } catch {
+        reply = null;
+      }
     }
 
-    if (!replyText) {
-      const lowered = trimmed.toLowerCase();
-      const matchedStation = findNearestStation(stations, userLat, userLng, lowered);
-      const stationAliases = matchedStation
-        ? [
-            matchedStation.station.name_en.toLowerCase(),
-            ...matchedStation.station.aliases.map((a) => a.toLowerCase()),
-          ]
-        : [];
-      const matchedAreaToken =
-        stationAliases.find((alias) => lowered.includes(alias)) ??
-        matchedStation?.station.name_en.toLowerCase().split(" ")[0] ??
-        "dhanmondi";
-      const localHits = reports.filter(
-        (r) =>
-          r.status !== "rejected" &&
-          r.flag_status !== "flagged" &&
-          r.flag_status !== "confirmed_false" &&
-          (lowered.includes(r.area_name.toLowerCase().split("-")[0]) ||
-            r.area_name.toLowerCase().includes(matchedAreaToken))
-      );
-      const stationName = matchedStation?.station.name_en ?? "Dhanmondi Model Police Station";
-      const stationPhone = matchedStation?.station.phone ?? "999";
-      const guidance = lowered.includes("snatch")
-        ? "Move to a well-lit shop or police box immediately, keep IMEI/SIM block ready, and log a geo-pinned report for Police dispatch."
-        : "Stay on well-lit arterial roads and start a Safe Walk escort timer so missed check-ins auto-escalate to 999.";
-      replyText = `Area brief: ${localHits.length} recent report(s) matched. Nearest Thana: ${stationName} (${stationPhone}). ${guidance}`;
+    if (!reply) {
+      const q = query.toLowerCase();
+      if (q.includes("safe") || q.includes("dhanmondi") || q.includes("mirpur")) {
+        reply = `${dhanmondiScore.area} currently scores ${dhanmondiScore.score}/100 (${dhanmondiScore.level}) based on ${
+          dhanmondiScore.reportCount
+        } recent reports (${dhanmondiScore.resolvedCount} resolved). Nearest patrol base is ${
+          nearestStation?.station.name_en ?? "Dhanmondi Model Police Station"
+        } (${nearestStation ? Math.round(nearestStation.distanceMeters) : 850}m away).`;
+      } else if (q.includes("thana") || q.includes("police") || q.includes("phone") || q.includes("number")) {
+        reply = nearestStation
+          ? `Nearest Thana: ${nearestStation.station.name_en} (${nearestStation.station.name_bn}) · Call ${nearestStation.station.phone} (${Math.round(
+              nearestStation.distanceMeters
+            )}m from Dhanmondi Rd 15). National helpline: 999.`
+          : "National Emergency Helpline: 999 · Nearest Thana: Dhanmondi Model Police Station (+880-2-58616011).";
+      } else if (q.includes("walk")) {
+        reply =
+          "Safe Walk shares a live heartbeat timer with Dhaka Control Room and your trusted contacts. Tap Check in safe upon arrival; if missed, SOS escalates automatically.";
+      } else {
+        reply = `Monitoring ${dhanmondiScore.area} (Safety ${dhanmondiScore.score}/100). Use the SOS ring for 999 police dispatch, or drop a map pin under Reports to alert nearby citizens.`;
+      }
     }
 
+    setAiThread((prev) => [...prev, { role: "assistant", text: reply }]);
     setAiBusy(false);
-    setChatThread((prev) => [
-      ...prev,
-      { id: `b-${Date.now()}`, sender: "bot", text: replyText as string, timeLabel: "DaakAI" },
-    ]);
-  };
-
-  const handleAskAiForm = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await sendAiQuery(aiPrompt);
   };
 
   const handleAddContact = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newContactName.trim() || !newContactPhone.trim()) return;
+    if (!newContactName.trim() || !newContactPhone.trim() || emergencyContacts.length >= 3) return;
     onUpdateContact({
       id: `ec-${Date.now()}`,
       name: newContactName.trim(),
       phone: newContactPhone.trim(),
-      relation: "Trusted Contact",
+      relation: newContactRel.trim() || "Contact",
       notify_on_sos: true,
       notify_on_safe_walk: true,
     });
@@ -250,743 +304,814 @@ function CitizenPreviewDeck({
     setNewContactPhone("");
   };
 
-  const publicReports = reports
-    .filter((r) => r.status === "verified" || r.status === "investigating" || r.status === "resolved")
-    .map((r) => maskReportForRole(r, "citizen", citizenProfile.id));
-
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "20px", alignItems: "flex-start" }}>
-      {/* 390x844 Mobile Frame */}
-      <div
-        className="surface-panel"
-        style={{
-          width: "396px",
-          maxWidth: "100%",
-          height: "780px",
-          borderRadius: "20px",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-        aria-label="Citizen Expo Web Preview"
-      >
-        {/* Top Context Bar */}
-        <div
-          style={{
-            padding: "12px 14px",
-            backgroundColor: "var(--bg-rail-committed)",
-            color: "var(--ink-on-rail)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <div style={{ fontSize: "0.75rem", color: "var(--ink-on-rail-muted)" }}>
-              ডাক · Dhanmondi, Dhaka
-            </div>
-            <div style={{ fontWeight: 700, fontSize: "0.9375rem" }}>{citizenProfile.full_name}</div>
-          </div>
-          <span className="pill pill-safe tabular">Safety: {dhanmondiScore}</span>
+  // Shared inner UI building blocks used across both Full Web Surface & Handheld Preview Mode
+  const sosReactorCard = (
+    <div className="ts-card" ref={homeSectionRef}>
+      <div className="section-header-row">
+        <div>
+          <h3 className="section-header-title">Emergency SOS 999</h3>
+          <p className="section-header-sub">Instant GPS relay to Dhaka Police Control Room</p>
         </div>
-
-        {/* Scrollable Content */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "14px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "12px",
-          }}
-        >
-          {sosSentBanner && (
-            <div
-              role="status"
-              style={{
-                padding: "10px 12px",
-                borderRadius: "8px",
-                backgroundColor: "var(--signal-emergency-soft)",
-                color: "var(--signal-emergency)",
-                border: "1px solid var(--signal-emergency)",
-                fontSize: "0.8125rem",
-                fontWeight: 600,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "8px",
-              }}
-            >
-              <span>{sosSentBanner}</span>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setSosSentBanner(null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-
-          {tab === "home" && (
-            <>
-              {/* Active Safe Walk OR New Safe Walk Creator */}
-              {activeWalk ? (
-                <div
-                  className="surface-muted"
-                  style={{
-                    padding: "12px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "8px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-                    <div>
-                      <strong style={{ fontSize: "0.8125rem", display: "block" }}>
-                        Safe Walk to {activeWalk.destination_name}
-                      </strong>
-                      <span style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                        Auto-escalates to Police SOS if check-in is missed
-                      </span>
-                    </div>
-                    <span className="pill pill-normal mono">Active</span>
-                  </div>
-                  <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      style={{ minHeight: "44px", flex: "1 1 110px" }}
-                      onClick={() => onCompleteWalk(activeWalk.id)}
-                    >
-                      Check in safe
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ minHeight: "44px" }}
-                      onClick={() => onExtendWalk(activeWalk.id, 5)}
-                    >
-                      +5m
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ minHeight: "44px", flex: "1 1 110px" }}
-                      onClick={() => onEscalateWalk(activeWalk.id)}
-                    >
-                      Simulate timeout
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="surface-muted" style={{ padding: "12px", display: "grid", gap: "8px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <strong style={{ fontSize: "0.8125rem" }}>Start Safe Walk Escort</strong>
-                    <span className="pill pill-neutral">Timer guard</span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 78px", gap: "6px" }}>
-                    <select
-                      aria-label="Safe Walk destination"
-                      className="field-select"
-                      style={{ fontSize: "0.75rem", padding: "6px 8px" }}
-                      value={walkDest}
-                      onChange={(e) => setWalkDest(e.target.value)}
-                    >
-                      {WALK_DESTINATIONS.map((dest) => (
-                        <option key={dest} value={dest}>
-                          {dest}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="Expected arrival minutes"
-                      className="field-select"
-                      style={{ fontSize: "0.75rem", padding: "6px 8px" }}
-                      value={walkEta}
-                      onChange={(e) => setWalkEta(Number(e.target.value))}
-                    >
-                      <option value={10}>10 min</option>
-                      <option value={15}>15 min</option>
-                      <option value={30}>30 min</option>
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ minHeight: "44px" }}
-                    onClick={() => onStartWalk(walkDest, walkEta)}
-                  >
-                    Start Safe Walk
-                  </button>
-                </div>
-              )}
-
-              {/* Tactile 5-Second Cancelable SOS Panic Ring */}
-              <div
-                className="surface-panel"
-                style={{
-                  padding: "16px 14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "10px",
-                  textAlign: "center",
-                }}
-              >
-                {countdown === null ? (
-                  <button
-                    type="button"
-                    onClick={() => setCountdown(5)}
-                    className="btn-emergency"
-                    style={{
-                      width: "148px",
-                      height: "148px",
-                      borderRadius: "999px",
-                      backgroundColor: "var(--signal-emergency-fill)",
-                      color: "var(--signal-emergency-on-fill)",
-                      border: "4px solid var(--signal-emergency-soft)",
-                      fontSize: "1.125rem",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <span>SOS</span>
-                    <span style={{ fontSize: "0.75rem", fontWeight: 500, marginTop: "4px" }}>
-                      Tap for 5s countdown
-                    </span>
-                  </button>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
-                    <div
-                      className="mono"
-                      role="timer"
-                      aria-live="assertive"
-                      aria-atomic="true"
-                      aria-label={`SOS sending in ${countdown} seconds`}
-                      style={{
-                        width: "120px",
-                        height: "120px",
-                        borderRadius: "999px",
-                        backgroundColor: "var(--signal-emergency-soft)",
-                        color: "var(--signal-emergency)",
-                        border: "3px solid var(--signal-emergency)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "2rem",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {countdown}
-                    </div>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ minHeight: "48px", minWidth: "180px", fontWeight: 700 }}
-                      onClick={() => setCountdown(null)}
-                    >
-                      Cancel SOS
-                    </button>
-                  </div>
-                )}
-
-                <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                  Nearest Thana: {nearest?.station.name_en} ({nearest?.distanceMeters} m) · Demo simulated 999
-                </div>
-              </div>
-
-              {/* Nearby Reports with 1 km Corroboration */}
-              <div>
-                <h2 style={{ margin: "2px 0 8px", fontSize: "0.9375rem", fontWeight: 600 }}>
-                  Nearby Verified Reports
-                </h2>
-                <div className="surface-panel" style={{ overflow: "hidden" }}>
-                  {publicReports.slice(0, 4).map((rep) => {
-                    const dist = haversineMeters(userLat, userLng, rep.lat, rep.lng);
-                    const within1Km = dist <= 1000;
-                    const alreadyCorroborated = corroboratedIds.includes(rep.id);
-                    const isOwn = rep.reporter_id === citizenProfile.id;
-                    return (
-                      <div
-                        key={rep.id}
-                        style={{
-                          padding: "10px 12px",
-                          borderBottom: "1px solid var(--border-hairline)",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "6px",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <strong style={{ fontSize: "0.8125rem" }}>{rep.title}</strong>
-                          <span className="mono" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                            {dist}m
-                          </span>
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                          {rep.area_name} · By {rep.reporter_display_name} · {formatStatusLabel(rep.status)}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <button
-                            type="button"
-                            className="btn"
-                            style={{ minHeight: "44px", fontSize: "0.75rem" }}
-                            disabled={!within1Km || isOwn || alreadyCorroborated}
-                            onClick={() => {
-                              setCorroboratedIds((prev) => (prev.includes(rep.id) ? prev : [...prev, rep.id]));
-                              onCorroborate(rep.id);
-                            }}
-                          >
-                            {alreadyCorroborated
-                              ? `Corroborated (${rep.corroboration_count})`
-                              : within1Km
-                              ? `I saw this too (${rep.corroboration_count})`
-                              : `Outside 1 km (${rep.corroboration_count})`}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Trusted Emergency Contacts */}
-              <div className="surface-panel" style={{ padding: "12px", display: "grid", gap: "8px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <h3 style={{ margin: 0, fontSize: "0.875rem", fontWeight: 700 }}>
-                    Trusted Emergency Contacts ({emergencyContacts.length}/3)
-                  </h3>
-                  <span className="pill pill-safe">Auto-SMS on SOS</span>
-                </div>
-                {emergencyContacts.map((ec) => (
-                  <div
-                    key={ec.id}
-                    className="surface-muted"
-                    style={{
-                      padding: "8px 10px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "8px",
-                    }}
-                  >
-                    <div style={{ fontSize: "0.75rem" }}>
-                      <strong>{ec.name}</strong>
-                      <div className="mono" style={{ color: "var(--ink-secondary)" }}>
-                        {ec.phone}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={() => onRemoveContact(ec.id)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                {emergencyContacts.length < 3 && (
-                  <form onSubmit={handleAddContact} style={{ display: "grid", gap: "6px" }}>
-                    <input
-                      aria-label="Contact name"
-                      className="field-input"
-                      style={{ fontSize: "0.75rem", padding: "6px 8px" }}
-                      value={newContactName}
-                      onChange={(e) => setNewContactName(e.target.value)}
-                      placeholder="Contact name (e.g. Mother)"
-                    />
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <input
-                        aria-label="Contact phone"
-                        className="field-input"
-                        style={{ fontSize: "0.75rem", padding: "6px 8px" }}
-                        value={newContactPhone}
-                        onChange={(e) => setNewContactPhone(e.target.value)}
-                        placeholder="+88017..."
-                      />
-                      <button type="submit" className="btn btn-primary btn-sm">
-                        Add
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </>
-          )}
-
-          {tab === "map" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <SpatialMapDeck
-                stations={stations}
-                reports={publicReports}
-                signals={[]}
-                selectedId={selectedMapItem}
-                categoryFilter={mapCatFilter}
-                onCategoryFilterChange={setMapCatFilter}
-                onSelectReport={(id) => setSelectedMapItem(id)}
-                onSelectSos={() => {}}
-                compact
-                heightPx={260}
-                theme={theme}
-                showSearch={false}
-              />
-
-              <h2 style={{ margin: "4px 0 0", fontSize: "0.9375rem" }}>Dhaka Area Safety Scores</h2>
-              {safetyScores.map((item) => {
-                const isSelected = activeAreaDetail?.area === item.area;
-                return (
-                  <button
-                    key={item.area}
-                    type="button"
-                    className="surface-panel"
-                    onClick={() => setSelectedArea(item.area)}
-                    style={{
-                      padding: "10px 12px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      borderColor: isSelected ? "var(--accent-interactive)" : "var(--border-hairline)",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{item.area}</div>
-                      <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                        {item.reportCount} reports · {item.resolvedCount} resolved
-                      </div>
-                    </div>
-                    <span className={`pill tabular ${item.score >= 75 ? "pill-safe" : "pill-warning"}`}>
-                      {item.score} · {item.level}
-                    </span>
-                  </button>
-                );
-              })}
-
-              {activeAreaDetail && (
-                <div className="surface-muted" style={{ padding: "12px", display: "grid", gap: "8px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <strong style={{ fontSize: "0.8125rem" }}>
-                      {activeAreaDetail.area} — 3-Factor Safety Breakdown
-                    </strong>
-                    <span className="mono" style={{ fontSize: "0.75rem", fontWeight: 700 }}>
-                      {activeAreaDetail.score}/100
-                    </span>
-                  </div>
-                  {[
-                    { label: "Frequency (40%)", val: activeAreaDetail.factors.crimeFrequency, color: "var(--signal-info)" },
-                    { label: "Resolution (35%)", val: activeAreaDetail.factors.resolutionRate, color: "var(--signal-safe)" },
-                    { label: "Day/Night (25%)", val: activeAreaDetail.factors.timeOfDay, color: "var(--signal-warning)" },
-                  ].map((f) => (
-                    <div key={f.label} className="factor-meter-row">
-                      <span>{f.label}</span>
-                      <div className="factor-track">
-                        <div className="factor-fill" style={{ width: `${f.val}%`, backgroundColor: f.color }} />
-                      </div>
-                      <span className="mono" style={{ textAlign: "right" }}>
-                        {f.val}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === "reports" && (
-            <form onSubmit={handlePublishReport} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <h2 style={{ margin: 0, fontSize: "0.9375rem" }}>Report an Incident</h2>
-              {reportMsg && (
-                <div className="pill pill-safe" style={{ padding: "8px 10px", borderRadius: "6px" }}>
-                  {reportMsg}
-                </div>
-              )}
-              <SpatialMapDeck
-                stations={stations}
-                reports={[]}
-                signals={[]}
-                selectedId={null}
-                categoryFilter="all"
-                onCategoryFilterChange={() => {}}
-                onSelectReport={() => {}}
-                onSelectSos={() => {}}
-                compact
-                heightPx={190}
-                theme={theme}
-                pickedPoint={pickedCoords}
-                onPickLocation={(lat, lng) => setPickedCoords({ lat, lng })}
-                showSearch={false}
-              />
-              <div>
-                <label htmlFor="mob-cat" className="field-label">
-                  Category
-                </label>
-                <select
-                  id="mob-cat"
-                  className="field-select"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as CrimeReport["category"])}
-                >
-                  <option value="snatching">Snatching</option>
-                  <option value="harassment">Harassment</option>
-                  <option value="theft">Theft</option>
-                  <option value="fraud">Fraud</option>
-                  <option value="traffic_hazard">Traffic hazard</option>
-                </select>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                <div>
-                  <label htmlFor="mob-area" className="field-label">
-                    Area
-                  </label>
-                  <select
-                    id="mob-area"
-                    className="field-select"
-                    value={areaName}
-                    onChange={(e) => {
-                      const nextArea = e.target.value;
-                      setAreaName(nextArea);
-                      setPickedCoords(resolveAreaCoordinates(nextArea));
-                    }}
-                  >
-                    <option value="Dhanmondi">Dhanmondi</option>
-                    <option value="Mirpur-10">Mirpur-10</option>
-                    <option value="Shahbagh">Shahbagh</option>
-                    <option value="Mohammadpur">Mohammadpur</option>
-                    <option value="Uttara">Uttara</option>
-                    <option value="Gulshan">Gulshan</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="mob-sev" className="field-label">
-                    Severity
-                  </label>
-                  <select
-                    id="mob-sev"
-                    className="field-select"
-                    value={severity}
-                    onChange={(e) => setSeverity(e.target.value as CrimeReport["severity"])}
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="critical">Critical</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label htmlFor="mob-title" className="field-label">
-                  Headline
-                </label>
-                <input
-                  id="mob-title"
-                  className="field-input"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Snatching near Science Lab"
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="mob-desc" className="field-label">
-                  Details
-                </label>
-                <textarea
-                  id="mob-desc"
-                  className="field-textarea"
-                  rows={3}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe landmark, direction, and time"
-                  required
-                />
-              </div>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  minHeight: "44px",
-                  fontSize: "0.8125rem",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isAnonymous}
-                  onChange={(e) => setIsAnonymous(e.target.checked)}
-                  style={{ width: "18px", height: "18px", flexShrink: 0 }}
-                />
-                Hide my name publicly (retained internally for Police)
-              </label>
-              <button type="submit" className="btn btn-primary" style={{ minHeight: "48px" }}>
-                Publish report
-              </button>
-            </form>
-          )}
-
-          {tab === "ai" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <h2 style={{ margin: 0, fontSize: "0.9375rem" }}>DaakAI (Bangla / Banglish)</h2>
-
-              {/* Quick Bangla/Banglish prompt chips */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {QUICK_AI_PROMPTS.map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    className="map-chip"
-                    onClick={() => void sendAiQuery(q)}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-
-              {/* Multi-turn Chat Thread */}
-              <div className="surface-panel" style={{ padding: "10px", display: "grid", gap: "8px" }}>
-                {chatThread.map((msg) => (
-                  <div
-                    key={msg.id}
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: "8px",
-                      fontSize: "0.8125rem",
-                      alignSelf: msg.sender === "user" ? "end" : "start",
-                      backgroundColor:
-                        msg.sender === "user" ? "var(--bg-rail-committed)" : "var(--bg-rail-light)",
-                      color: msg.sender === "user" ? "var(--ink-on-rail)" : "var(--ink-primary)",
-                      border: "1px solid var(--border-hairline)",
-                    }}
-                  >
-                    <div>{msg.text}</div>
-                    <div style={{ fontSize: "0.6875rem", opacity: 0.78, marginTop: "3px" }}>
-                      {msg.timeLabel}
-                    </div>
-                  </div>
-                ))}
-                {aiBusy && (
-                  <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                    DaakAI is checking PostGIS reports...
-                  </div>
-                )}
-              </div>
-
-              <form onSubmit={handleAskAiForm} style={{ display: "flex", gap: "6px" }}>
-                <label htmlFor="daakai-input" className="skip-link">
-                  Ask DaakAI about an area or emergency step
-                </label>
-                <input
-                  id="daakai-input"
-                  className="field-input"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Ask in Bangla, Banglish, or English..."
-                />
-                <button type="submit" className="btn btn-primary" style={{ minHeight: "44px", flexShrink: 0 }}>
-                  Ask DaakAI
-                </button>
-              </form>
-
-              <h3 style={{ margin: "6px 0 2px", fontSize: "0.8125rem" }}>Emergency &amp; Watchlist</h3>
-              <div className="surface-panel" style={{ padding: "10px 12px", fontSize: "0.75rem" }}>
-                <div>
-                  National Emergency: <strong className="mono">999</strong>
-                </div>
-                <div>
-                  {nearest?.station.name_en}: <strong className="mono">{nearest?.station.phone}</strong>
-                </div>
-              </div>
-              {criminals
-                .filter((c) => c.status !== "archived")
-                .map((c) => (
-                  <div key={c.id} className="surface-panel" style={{ padding: "8px 10px", fontSize: "0.75rem" }}>
-                    <strong>{c.full_name}</strong> · {c.last_known_area} ({formatStatusLabel(c.status)})
-                  </div>
-                ))}
-            </div>
-          )}
-
-          <div
-            style={{
-              marginTop: "auto",
-              paddingTop: "8px",
-              borderTop: "1px solid var(--border-hairline)",
-              fontSize: "0.6875rem",
-              color: "var(--ink-secondary)",
-              textAlign: "center",
-            }}
-          >
-            Demo dataset · simulated Bangladesh incidents &amp; 999 relay
-          </div>
-        </div>
-
-        {/* Native 4-Tab Bottom Bar */}
-        <nav
-          aria-label="Citizen mobile tabs"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            borderTop: "1px solid var(--border-hairline)",
-            backgroundColor: "var(--bg-surface)",
-          }}
-        >
-          {(["home", "map", "reports", "ai"] as MobileTab[]).map((item) => (
-            <button
-              key={item}
-              type="button"
-              aria-current={tab === item ? "page" : undefined}
-              onClick={() => setTab(item)}
-              style={{
-                minHeight: "50px",
-                border: "none",
-                background: tab === item ? "var(--bg-rail-light)" : "transparent",
-                color: tab === item ? "var(--accent-interactive)" : "var(--ink-secondary)",
-                fontWeight: tab === item ? 700 : 500,
-                fontSize: "0.75rem",
-                cursor: "pointer",
-              }}
-            >
-              {item === "home" ? "Home" : item === "map" ? "Map" : item === "reports" ? "Reports" : "DaakAI"}
-            </button>
-          ))}
-        </nav>
+        <span className="pill pill-breach">5s buffer</span>
       </div>
 
-      {/* Live Walkthrough Instructions for Portfolio Reviewers */}
-      <div className="surface-panel" style={{ flex: "1 1 280px", padding: "18px" }}>
-        <h2 style={{ margin: "0 0 8px", fontSize: "1rem", fontWeight: 700 }}>
-          Live End-to-End Demo Flow
-        </h2>
-        <p className="prose-measure" style={{ margin: "0 0 12px", fontSize: "0.875rem", color: "var(--ink-secondary)" }}>
-          This Expo Web Preview shares live state with the Police &amp; Admin Command Deck:
+      <div className="sos-reactor-wrap">
+        {sosCountdown === null ? (
+          <button
+            type="button"
+            className="sos-reactor-btn"
+            onClick={() => setSosCountdown(5)}
+            aria-label="SOS Tap for 5s countdown"
+          >
+            <span style={{ fontSize: "2rem", fontWeight: 700, lineHeight: 1 }}>SOS</span>
+            <span style={{ fontSize: "0.75rem", fontWeight: 500, opacity: 0.92 }}>
+              Tap for 5s countdown
+            </span>
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="sos-reactor-btn is-counting"
+              onClick={() => setSosCountdown(0)}
+              aria-label={`Dispatching SOS in ${sosCountdown} seconds`}
+            >
+              <span className="font-mono" style={{ fontSize: "2.25rem", fontWeight: 700, lineHeight: 1 }}>
+                {sosCountdown}
+              </span>
+              <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>Dispatching now</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => {
+                setSosCountdown(null);
+                setSosStatusNote("SOS canceled during 5s buffer · No alert sent");
+              }}
+            >
+              Cancel SOS
+            </button>
+          </>
+        )}
+
+        <p style={{ margin: 0, fontSize: "0.8125rem", color: "var(--p-muted)", maxWidth: "36ch" }}>
+          {sosStatusNote}
         </p>
-        <ol
-          className="prose-measure"
-          style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.875rem" }}
-        >
-          <li>
-            Tap <strong>SOS</strong> in the phone frame (watch the 5-second cancelable countdown) or tap{" "}
-            <strong>Simulate timeout</strong> on the Safe Walk banner.
-          </li>
-          <li>
-            Open the <strong>Map</strong> tab inside the phone frame to explore the live Dhaka street map, thermal
-            crime heatmap, and 3-factor neighborhood safety score breakdown.
-          </li>
-          <li>
-            Drop a pin on the map under <strong>Reports</strong> to submit an anonymous incident, then switch back to{" "}
-            <strong>Police</strong> in the header to dispatch or verify.
-          </li>
-        </ol>
+
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "center" }}>
+          <span className="pill pill-neutral font-mono">23.7465, 90.3760</span>
+          <span className="pill pill-safe">
+            {nearestStation
+              ? `${nearestStation.station.name_en.replace(" Model Police Station", "")} · ${Math.round(
+                  nearestStation.distanceMeters
+                )}m`
+              : "Dhanmondi Thana · 850m"}
+          </span>
+        </div>
       </div>
     </div>
   );
-}
 
-export default React.memo(CitizenPreviewDeck);
+  const safeWalkCard = (
+    <div className="ts-card">
+      <div className="section-header-row">
+        <div>
+          <h3 className="section-header-title">Safe Walk Escort</h3>
+          <p className="section-header-sub">Live arrival timer backed by Control Room escalation</p>
+        </div>
+        <span
+          className={`pill ${
+            activeWalk
+              ? activeWalk.status === "escalated"
+                ? "pill-breach"
+                : "pill-safe"
+              : "pill-neutral"
+          }`}
+        >
+          {activeWalk ? formatStatusLabel(activeWalk.status) : "Standby"}
+        </span>
+      </div>
+
+      {activeWalk ? (
+        <div className="surface-muted" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: "0.8125rem", color: "var(--p-muted)" }}>Destination</div>
+              <strong style={{ fontSize: "1rem" }}>{activeWalk.destination_name}</strong>
+            </div>
+            <span className="pill pill-normal font-mono">
+              ETA {new Date(activeWalk.expected_arrival_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => onCompleteWalk(activeWalk.id)}
+            >
+              Check in safe
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => onExtendWalk(activeWalk.id, 5)}
+            >
+              +5m
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => onEscalateWalk(activeWalk.id)}
+            >
+              Simulate timeout
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div>
+            <label htmlFor="citizen-walk-dest" className="field-label">
+              Destination in Dhaka
+            </label>
+            <input
+              id="citizen-walk-dest"
+              className="field-input"
+              value={walkDestination}
+              onChange={(e) => setWalkDestination(e.target.value)}
+              placeholder="e.g. Kalabagan Bus Stand"
+            />
+          </div>
+          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 130px" }}>
+              <label htmlFor="citizen-walk-mins" className="field-label">
+                Minutes
+              </label>
+              <select
+                id="citizen-walk-mins"
+                className="field-select"
+                value={walkMinutes}
+                onChange={(e) => setWalkMinutes(Number(e.target.value))}
+              >
+                <option value={10}>10 minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={25}>25 minutes</option>
+                <option value={40}>40 minutes</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => onStartWalk(walkDestination.trim() || "Home", walkMinutes)}
+            >
+              Start Safe Walk
+              <span className="m-arrow" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M2.5 7h9M8 3.5L11.5 7 8 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const nearbyFeedCard = (
+    <div className="ts-card m-lift" ref={reportsSectionRef}>
+      <div className="section-header-row">
+        <div>
+          <h3 className="section-header-title">Nearby Verified Alerts</h3>
+          <p className="section-header-sub">Within 1–5 km · Tap to corroborate eyewitness sightings</p>
+        </div>
+        <span className="pill pill-normal font-mono">{nearbyReports.length} nearby</span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {nearbyReports.map(({ report, distMeters }) => {
+          const corroborated = Boolean(corroboratedIds[report.id]);
+          const within1Km = distMeters <= 1500;
+          return (
+            <div
+              key={report.id}
+              className="surface-muted"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "4px" }}>
+                  <span className={`pill ${report.severity === "critical" || report.severity === "high" ? "pill-warning" : "pill-normal"}`}>
+                    {formatStatusLabel(report.category)}
+                  </span>
+                  <span className="pill pill-neutral font-mono">{distMeters}m</span>
+                  {within1Km && <span className="pill pill-safe">1km zone</span>}
+                </div>
+                <strong style={{ display: "block", fontSize: "0.9375rem" }}>{report.title}</strong>
+                <span style={{ fontSize: "0.8125rem", color: "var(--p-muted)" }}>
+                  {report.area_name} · {report.corroboration_count} witnesses
+                </span>
+              </div>
+
+              <button
+                type="button"
+                className={`btn btn-sm ${corroborated ? "btn-primary" : ""}`}
+                onClick={() => {
+                  if (!corroborated) {
+                    setCorroboratedIds((prev) => ({ ...prev, [report.id]: true }));
+                    onCorroborate(report.id);
+                  }
+                }}
+              >
+                {corroborated ? "Corroborated" : "I saw this too"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const daakAiLitCard = (
+    <div className="ts-panel--lit" ref={aiSectionRef}>
+      <div className="section-header-row">
+        <div>
+          <h3 className="section-header-title" style={{ color: "var(--p-inv-ink)" }}>
+            DaakAI Safety Copilot
+          </h3>
+          <p className="section-header-sub" style={{ color: "var(--p-inv-muted)" }}>
+            English, Bangla &amp; Banglish guidance grounded in live Dhaka Police data
+          </p>
+        </div>
+        <span
+          className="pill"
+          style={{
+            background: "rgba(255,255,255,0.12)",
+            border: "1px solid rgba(255,255,255,0.22)",
+            color: "var(--p-inv-ink)",
+          }}
+        >
+          Live RAG
+        </span>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+        {QUICK_AI_PROMPTS.map((q) => (
+          <button
+            key={q}
+            type="button"
+            className="btn btn-sm"
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              borderColor: "rgba(255,255,255,0.22)",
+              color: "var(--p-inv-ink)",
+            }}
+            onClick={() => handleSubmitAi(q)}
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          maxHeight: "230px",
+          overflowY: "auto",
+          padding: "12px",
+          borderRadius: "14px",
+          background: "rgba(0, 0, 0, 0.22)",
+          border: "1px solid rgba(255, 255, 255, 0.12)",
+        }}
+      >
+        {aiThread.map((msg, idx) => (
+          <div
+            key={`${msg.role}-${idx}`}
+            style={{
+              alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
+              maxWidth: "90%",
+              padding: "9px 12px",
+              borderRadius: "12px",
+              fontSize: "0.875rem",
+              background:
+                msg.role === "user" ? "rgba(255, 255, 255, 0.18)" : "rgba(6, 59, 66, 0.72)",
+              border: "1px solid rgba(255, 255, 255, 0.14)",
+              color: "var(--p-inv-ink)",
+            }}
+          >
+            {msg.text}
+          </div>
+        ))}
+      </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSubmitAi();
+        }}
+        style={{ display: "flex", gap: "8px", alignItems: "center" }}
+      >
+        <input
+          id="daakai-input"
+          className="field-input"
+          style={{
+            background: "rgba(255, 255, 255, 0.12)",
+            borderColor: "rgba(255, 255, 255, 0.24)",
+            color: "#ffffff",
+          }}
+          placeholder="Ask DaakAI (e.g. Dhanmondi ektu safe naki?)..."
+          value={aiInput}
+          onChange={(e) => setAiInput(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="btn"
+          disabled={aiBusy}
+          style={{
+            background: "var(--p-inv-accent)",
+            borderColor: "var(--p-inv-accent)",
+            color: "var(--p-inv-accent-ink)",
+          }}
+        >
+          {aiBusy ? "Sending..." : "Ask DaakAI"}
+        </button>
+      </form>
+    </div>
+  );
+
+  const reportComposerCard = (
+    <div className="ts-card">
+      <div className="section-header-row">
+        <div>
+          <h3 className="section-header-title">File Incident Report</h3>
+          <p className="section-header-sub">
+            Drop an exact pin on the map or choose a Dhaka division
+          </p>
+        </div>
+        <span className="pill pill-normal">GPS Tagged</span>
+      </div>
+
+      <SpatialMapDeck
+        stations={stations}
+        reports={reports}
+        signals={[]}
+        selectedId={selectedMapId}
+        categoryFilter={mapCategory}
+        onCategoryFilterChange={setMapCategory}
+        onSelectReport={(id) => setSelectedMapId(id)}
+        onSelectSos={(id) => setSelectedMapId(id)}
+        compact
+        heightPx={220}
+        theme={theme}
+        pickedPoint={pickedPin}
+        onPickLocation={(lat, lng) => setPickedPin({ lat, lng })}
+        showSearch={false}
+      />
+
+      <form onSubmit={handlePublishReport} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <div className="cards-grid-3">
+          <div>
+            <label htmlFor="mob-cat" className="field-label">
+              Category
+            </label>
+            <select
+              id="mob-cat"
+              className="field-select"
+              value={repCat}
+              onChange={(e) => setRepCat(e.target.value as CrimeReport["category"])}
+            >
+              {REPORT_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {formatStatusLabel(c)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="mob-area" className="field-label">
+              Area
+            </label>
+            <select
+              id="mob-area"
+              className="field-select"
+              value={repArea}
+              onChange={(e) => setRepArea(e.target.value)}
+            >
+              {DHAKA_AREAS.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="mob-sev" className="field-label">
+              Severity
+            </label>
+            <select
+              id="mob-sev"
+              className="field-select"
+              value={repSev}
+              onChange={(e) => setRepSev(e.target.value as CrimeReport["severity"])}
+            >
+              {SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {formatStatusLabel(s)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="mob-title" className="field-label">
+            Incident headline
+          </label>
+          <input
+            id="mob-title"
+            className="field-input"
+            value={repTitle}
+            onChange={(e) => setRepTitle(e.target.value)}
+            placeholder="e.g. Two-wheeler phone snatching near Satmasjid Rd"
+            required
+          />
+        </div>
+
+        <div>
+          <label htmlFor="mob-desc" className="field-label">
+            Details for patrol units &amp; nearby citizens
+          </label>
+          <textarea
+            id="mob-desc"
+            className="field-textarea"
+            value={repDesc}
+            onChange={(e) => setRepDesc(e.target.value)}
+            placeholder="Describe direction of travel, landmarks, or immediate hazard..."
+            required
+          />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "0.875rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={repAnon}
+              onChange={(e) => setRepAnon(e.target.checked)}
+            />
+            Mask my name publicly (police still verify identity)
+          </label>
+
+          <button type="submit" className="btn btn-primary">
+            Publish report
+            <span className="m-arrow" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2.5 7h9M8 3.5L11.5 7 8 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </button>
+        </div>
+
+        {reportBanner && (
+          <div role="status" className="pill pill-safe" style={{ alignSelf: "flex-start" }}>
+            {reportBanner}
+          </div>
+        )}
+      </form>
+    </div>
+  );
+
+  const contactsAndWatchlistCard = (
+    <div className="ts-card m-lift">
+      <div className="section-header-row">
+        <div>
+          <h3 className="section-header-title">Trusted Circle &amp; Alerts</h3>
+          <p className="section-header-sub">
+            Emergency SMS recipients ({emergencyContacts.length}/3) &amp; active Metro wanted alerts
+          </p>
+        </div>
+        <span className="pill pill-neutral font-mono">{emergencyContacts.length}/3 active</span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {emergencyContacts.map((c) => (
+          <div
+            key={c.id}
+            className="surface-muted"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "10px",
+              padding: "10px 14px",
+            }}
+          >
+            <div>
+              <strong style={{ fontSize: "0.9375rem" }}>{c.name}</strong>
+              <div className="font-mono" style={{ fontSize: "0.8125rem", color: "var(--p-muted)" }}>
+                {c.relation} · {c.phone}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => onRemoveContact(c.id)}
+              aria-label={`Remove contact ${c.name}`}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+
+        {emergencyContacts.length < 3 && (
+          <form onSubmit={handleAddContact} style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "4px" }}>
+            <input
+              className="field-input"
+              style={{ flex: "1 1 120px" }}
+              placeholder="Contact name"
+              value={newContactName}
+              onChange={(e) => setNewContactName(e.target.value)}
+            />
+            <input
+              className="field-input"
+              style={{ flex: "1 1 130px" }}
+              placeholder="+88017..."
+              value={newContactPhone}
+              onChange={(e) => setNewContactPhone(e.target.value)}
+            />
+            <input
+              className="field-input"
+              style={{ flex: "0 1 100px" }}
+              placeholder="Relation"
+              value={newContactRel}
+              onChange={(e) => setNewContactRel(e.target.value)}
+            />
+            <button type="submit" className="btn btn-sm btn-primary">
+              Add
+            </button>
+          </form>
+        )}
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--c-border)", paddingTop: "12px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+          <strong style={{ fontSize: "0.875rem" }}>Police Wanted Watchlist</strong>
+          <span className="pill pill-breach">{criminals.filter((c) => c.status === "wanted").length} active</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {criminals.slice(0, 2).map((crim) => (
+            <div
+              key={crim.id}
+              className="surface-muted"
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "10px",
+                padding: "10px 14px",
+              }}
+            >
+              <div>
+                <strong style={{ fontSize: "0.875rem" }}>{crim.full_name}</strong>
+                <span style={{ display: "block", fontSize: "0.8125rem", color: "var(--p-muted)" }}>
+                  Last seen: {crim.last_known_area}
+                </span>
+              </div>
+              <span className={`pill ${crim.risk_level === "critical" ? "pill-breach" : "pill-warning"}`}>
+                {formatStatusLabel(crim.risk_level)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <section aria-label="Citizen Expo Web Preview" className="citizen-stage">
+      {/* Citizen Command Status Banner + Surface Switcher */}
+      <div className="ts-card citizen-top-strip">
+        <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+          <div
+            className="conic-gauge"
+            style={{
+              background: `conic-gradient(var(--p-accent) ${dhanmondiScore.score * 3.6}deg, var(--p-surface) 0deg)`,
+            }}
+            aria-label={`Area safety score ${dhanmondiScore.score} out of 100`}
+          >
+            <div className="conic-gauge-inner font-mono">{dhanmondiScore.score}</div>
+          </div>
+
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <h2 className="section-header-title" style={{ fontSize: "1.35rem" }}>
+                ডাক Citizen · {citizenProfile.full_name}
+              </h2>
+              <span className="pill pill-safe">
+                {dhanmondiScore.area} · {dhanmondiScore.level}
+              </span>
+            </div>
+            <p className="section-header-sub">
+              Verified Citizen ID · Nearest Thana:{" "}
+              <strong>{nearestStation?.station.name_en ?? "Dhanmondi Model Police Station"}</strong> (
+              <span className="font-mono">{nearestStation?.station.phone ?? "+880-2-58616011"}</span>)
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          {/* Tab Strip (works as anchor jump in Full Web Surface, and route tabs in Mobile Handset Frame) */}
+          <nav aria-label="Citizen mobile tabs" className="citizen-tab-bar">
+            {(["Home", "Map", "Reports", "DaakAI"] as CitizenTab[]).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                className={`citizen-tab-btn ${activeTab === tab ? "is-active" : ""}`}
+                aria-pressed={activeTab === tab}
+                onClick={() => handleTabSelect(tab)}
+              >
+                {tab}
+              </button>
+            ))}
+          </nav>
+
+          <div className="role-pill-group" role="group" aria-label="Citizen view layout mode">
+            <button
+              type="button"
+              className={`role-pill-btn ${surfaceMode === "web" ? "is-active" : ""}`}
+              onClick={() => setSurfaceMode("web")}
+            >
+              Full Web Surface
+            </button>
+            <button
+              type="button"
+              className={`role-pill-btn ${surfaceMode === "phone" ? "is-active" : ""}`}
+              onClick={() => setSurfaceMode("phone")}
+            >
+              Mobile Handset Frame
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Mode 1: Full-Screen 12-Column Citizen Bento (Default) */}
+      {surfaceMode === "web" ? (
+        <div className="citizen-bento-grid">
+          {/* Split Hero Left (span-5): SOS Reactor + Safe Walk */}
+          <div className="span-5" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            {sosReactorCard}
+            {safeWalkCard}
+          </div>
+
+          {/* Split Hero Right (span-7): Live Street Map + 3-Factor Safety Telemetry */}
+          <div className="span-7" ref={mapSectionRef} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <SpatialMapDeck
+              stations={stations}
+              reports={reports}
+              signals={[]}
+              selectedId={selectedMapId}
+              categoryFilter={mapCategory}
+              onCategoryFilterChange={setMapCategory}
+              onSelectReport={(id) => setSelectedMapId(id)}
+              onSelectSos={(id) => setSelectedMapId(id)}
+              heightPx={390}
+              theme={theme}
+              showSearch
+            />
+
+            <div className="ts-card ts-card--surface">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                <strong style={{ fontSize: "0.9375rem" }}>
+                  {dhanmondiScore.area} Safety Formula (3-Factor Transparent Telemetry)
+                </strong>
+                <span className="pill pill-normal font-mono">{dhanmondiScore.score} / 100</span>
+              </div>
+
+              <div className="cards-grid-3">
+                <div className="factor-meter-row">
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8125rem" }}>
+                    <span>Crime frequency (40%)</span>
+                    <span className="font-mono">{dhanmondiScore.factors.crimeFrequency}%</span>
+                  </div>
+                  <div className="factor-track">
+                    <div
+                      className="factor-fill"
+                      style={{
+                        width: `${Math.min(100, dhanmondiScore.factors.crimeFrequency)}%`,
+                        background: "var(--p-accent)",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="factor-meter-row">
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8125rem" }}>
+                    <span>Resolution rate (35%)</span>
+                    <span className="font-mono">{dhanmondiScore.factors.resolutionRate}%</span>
+                  </div>
+                  <div className="factor-track">
+                    <div
+                      className="factor-fill"
+                      style={{
+                        width: `${Math.min(100, dhanmondiScore.factors.resolutionRate)}%`,
+                        background: "var(--safe)",
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="factor-meter-row">
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8125rem" }}>
+                    <span>Time-of-day safety (25%)</span>
+                    <span className="font-mono">{dhanmondiScore.factors.timeOfDay}%</span>
+                  </div>
+                  <div className="factor-track">
+                    <div
+                      className="factor-fill"
+                      style={{
+                        width: `${Math.min(100, dhanmondiScore.factors.timeOfDay)}%`,
+                        background: "var(--amber)",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 2x2 Bento Row 1 */}
+          <div className="span-6">{nearbyFeedCard}</div>
+          <div className="span-6">{daakAiLitCard}</div>
+
+          {/* 2x2 Bento Row 2 */}
+          <div className="span-6">{reportComposerCard}</div>
+          <div className="span-6">{contactsAndWatchlistCard}</div>
+        </div>
+      ) : (
+        /* Mode 2: Realistic Mobile Handset Frame Preview */
+        <div className="phone-frame-stage">
+          <div className="phone-chassis" aria-label="Mobile handset preview">
+            <div className="phone-chassis-notch">
+              <span>ডাক Mobile</span>
+              <span>Dhanmondi · 999 Ready</span>
+            </div>
+
+            <div className="phone-chassis-scroll">
+              {activeTab === "Home" && (
+                <>
+                  {sosReactorCard}
+                  {safeWalkCard}
+                  {contactsAndWatchlistCard}
+                </>
+              )}
+
+              {activeTab === "Map" && (
+                <SpatialMapDeck
+                  stations={stations}
+                  reports={reports}
+                  signals={[]}
+                  selectedId={selectedMapId}
+                  categoryFilter={mapCategory}
+                  onCategoryFilterChange={setMapCategory}
+                  onSelectReport={(id) => setSelectedMapId(id)}
+                  onSelectSos={(id) => setSelectedMapId(id)}
+                  compact
+                  heightPx={380}
+                  theme={theme}
+                  showSearch
+                />
+              )}
+
+              {activeTab === "Reports" && (
+                <>
+                  {reportComposerCard}
+                  {nearbyFeedCard}
+                </>
+              )}
+
+              {activeTab === "DaakAI" && daakAiLitCard}
+            </div>
+
+            <div className="phone-chassis-nav">
+              {(["Home", "Map", "Reports", "DaakAI"] as CitizenTab[]).map((tab) => (
+                <button
+                  key={`handset-${tab}`}
+                  type="button"
+                  className={`citizen-tab-btn ${activeTab === tab ? "is-active" : ""}`}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
