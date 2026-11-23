@@ -122,12 +122,68 @@ export interface AreaSafetyScore {
   level: "Safe" | "Moderate" | "Caution" | "High Risk";
   reportCount: number;
   resolvedCount: number;
+  pendingCount: number;
+  nightCount: number;
+  dominantCategory: string;
+  lat: number;
+  lng: number;
+  factors: {
+    crimeFrequency: number;
+    resolutionRate: number;
+    timeOfDay: number;
+  };
+}
+
+export interface ReportTip {
+  id: string;
+  report_id: string;
+  author_display_name: string;
+  is_anonymous_public: boolean;
+  body: string;
+  votes: number;
+  created_at: string;
+}
+
+export interface EmergencyContact {
+  id: string;
+  name: string;
+  phone: string;
+  relation: string;
+  notify_on_sos: boolean;
+  notify_on_safe_walk: boolean;
+}
+
+export interface FalseReportBreakdown {
+  riskLevel: "Critical" | "High" | "Medium" | "Low";
+  userCredibility: number;
+  duplicatePattern: number;
+  rapidSubmission: number;
+  detailConsistency: number;
+  suspiciousContent: number;
+}
+
+export interface PredictiveAlert {
+  id: string;
+  type: "SPIKE" | "HOTSPOT" | "TREND";
+  severity: number;
+  severityLabel: "Critical" | "High" | "Medium" | "Low";
+  area: string;
+  crimeType: string;
+  timeOfDay: string;
+  message: string;
+  description: string;
+  count: number;
+  trend: "increasing" | "stable";
+  lat: number;
+  lng: number;
 }
 
 export interface DaakDataset {
   profiles: Record<UserRole, DemoProfile>;
   policeStations: PoliceStation[];
   reports: CrimeReport[];
+  reportTips: ReportTip[];
+  emergencyContacts: EmergencyContact[];
   distressSignals: DistressSignal[];
   safeWalks: SafeWalk[];
   shiftHandovers: ShiftHandover[];
@@ -222,20 +278,199 @@ export function computeAreaSafetyScores(reports: CrimeReport[]): AreaSafetyScore
 
   const out: AreaSafetyScore[] = [];
   for (const [area, items] of grouped.entries()) {
-    const freq = Math.max(10, 100 - Math.min(items.length, 15) * 6);
+    const freq = Math.round(Math.max(10, 100 - Math.min(items.length, 15) * 6));
     const resolvedCount = items.filter((i) => i.status === "resolved").length;
-    const resRate = (resolvedCount / items.length) * 100;
+    const pendingCount = items.length - resolvedCount;
+    const resRate = Math.round((resolvedCount / items.length) * 100);
     const nightHits = items.filter((i) => {
       const hourBdt = (new Date(i.occurred_at).getUTCHours() + 6) % 24;
       return hourBdt >= 20 || hourBdt < 5;
     }).length;
-    const tod = Math.max(15, 100 - (nightHits / items.length) * 70);
+    const tod = Math.round(Math.max(15, 100 - (nightHits / items.length) * 70));
     const score = Math.max(0, Math.min(100, Math.round(freq * 0.4 + resRate * 0.35 + tod * 0.25)));
     const level: AreaSafetyScore["level"] =
       score >= 75 ? "Safe" : score >= 50 ? "Moderate" : score >= 30 ? "Caution" : "High Risk";
-    out.push({ area, score, level, reportCount: items.length, resolvedCount });
+
+    const catCounts = new Map<string, number>();
+    let latSum = 0;
+    let lngSum = 0;
+    for (const item of items) {
+      catCounts.set(item.category, (catCounts.get(item.category) ?? 0) + 1);
+      latSum += item.lat;
+      lngSum += item.lng;
+    }
+    const dominantCategory =
+      Array.from(catCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "other";
+
+    out.push({
+      area,
+      score,
+      level,
+      reportCount: items.length,
+      resolvedCount,
+      pendingCount,
+      nightCount: nightHits,
+      dominantCategory,
+      lat: latSum / items.length,
+      lng: lngSum / items.length,
+      factors: {
+        crimeFrequency: freq,
+        resolutionRate: resRate,
+        timeOfDay: tod,
+      },
+    });
   }
   return out.sort((a, b) => a.score - b.score);
+}
+
+export function computeFalseReportBreakdown(report: CrimeReport): FalseReportBreakdown {
+  const base = Math.max(0, Math.min(100, report.suspicion_score));
+  const reasonText = report.suspicion_reasons.join(" ").toLowerCase();
+  const hasPromo = /http|bit\.ly|promo|test|spam/i.test(`${report.title} ${report.description} ${reasonText}`);
+  const hasDup = /duplicate|same incident|copy/i.test(`${report.title} ${report.description} ${reasonText}`);
+  const hasRapid = /rapid|submission|burst/i.test(reasonText);
+  const shortDetail = report.description.trim().length < 55 || /short|generic/i.test(reasonText);
+
+  const clamp = (v: number) => Math.max(5, Math.min(98, Math.round(v)));
+  const userCredibility = clamp(hasPromo ? base * 0.85 : base * 0.62);
+  const duplicatePattern = clamp(hasDup ? Math.max(base, 82) : base * 0.48);
+  const rapidSubmission = clamp(hasRapid ? Math.max(base * 0.9, 74) : base * 0.42);
+  const detailConsistency = clamp(shortDetail ? Math.max(base * 0.88, 72) : base * 0.55);
+  const suspiciousContent = clamp(hasPromo ? Math.max(base + 6, 88) : base * 0.45);
+
+  const riskLevel: FalseReportBreakdown["riskLevel"] =
+    base >= 80 ? "Critical" : base >= 60 ? "High" : base >= 40 ? "Medium" : "Low";
+
+  return {
+    riskLevel,
+    userCredibility,
+    duplicatePattern,
+    rapidSubmission,
+    detailConsistency,
+    suspiciousContent,
+  };
+}
+
+function getBdtTimeOfDay(iso: string): string {
+  const hourBdt = (new Date(iso).getUTCHours() + 6) % 24;
+  if (hourBdt >= 6 && hourBdt < 12) return "Morning";
+  if (hourBdt >= 12 && hourBdt < 18) return "Afternoon";
+  if (hourBdt >= 18 && hourBdt < 21) return "Evening";
+  return "Night";
+}
+
+export function generatePredictiveAlerts(reports: CrimeReport[]): PredictiveAlert[] {
+  const valid = reports.filter(
+    (r) => r.status !== "rejected" && r.flag_status !== "confirmed_false" && r.flag_status !== "flagged"
+  );
+  if (valid.length === 0) return [];
+
+  const alerts: PredictiveAlert[] = [];
+  const byAreaTime = new Map<string, CrimeReport[]>();
+  const byCategory = new Map<string, CrimeReport[]>();
+
+  for (const r of valid) {
+    const tod = getBdtTimeOfDay(r.occurred_at);
+    const key = `${r.area_name}|${tod}`;
+    const list = byAreaTime.get(key) ?? [];
+    list.push(r);
+    byAreaTime.set(key, list);
+
+    const catList = byCategory.get(r.category) ?? [];
+    catList.push(r);
+    byCategory.set(r.category, catList);
+  }
+
+  for (const [key, group] of byAreaTime.entries()) {
+    const [area, timeOfDay] = key.split("|");
+    const highSev = group.filter((r) => r.severity === "high" || r.severity === "critical").length;
+    if (group.length >= 2 || highSev >= 1) {
+      const top = group[0];
+      const sevScore = Math.min(10, Math.max(5, group.length * 2 + highSev * 2));
+      alerts.push({
+        id: `spike-${area.toLowerCase()}-${timeOfDay.toLowerCase()}`,
+        type: group.length >= 2 ? "SPIKE" : "HOTSPOT",
+        severity: sevScore,
+        severityLabel: sevScore >= 8 ? "Critical" : sevScore >= 6 ? "High" : "Medium",
+        area,
+        crimeType: formatStatusLabel(top.category),
+        timeOfDay,
+        message: `${formatStatusLabel(top.category)} ${group.length >= 2 ? "spike" : "hotspot"} in ${area} (${timeOfDay})`,
+        description: `${group.length} active/verified report(s) centered near ${top.address_text ?? area} during ${timeOfDay.toLowerCase()} hours.`,
+        count: group.length,
+        trend: highSev > 0 ? "increasing" : "stable",
+        lat: top.lat,
+        lng: top.lng,
+      });
+    }
+  }
+
+  for (const [cat, group] of byCategory.entries()) {
+    const areas = Array.from(new Set(group.map((g) => g.area_name)));
+    const first = group[0];
+    const sevScore = Math.min(9, Math.max(4, group.length + areas.length + 2));
+    alerts.push({
+      id: `trend-${cat}`,
+      type: "TREND",
+      severity: sevScore,
+      severityLabel: sevScore >= 8 ? "Critical" : sevScore >= 6 ? "High" : sevScore >= 4 ? "Medium" : "Low",
+      area: areas.join(", "),
+      crimeType: formatStatusLabel(cat),
+      timeOfDay: "All hours",
+      message: `${formatStatusLabel(cat)} pattern across ${areas.length} Dhaka division(s)`,
+      description: `${group.length} report(s) logged across ${areas.join(", ")} with ${group.reduce((s, r) => s + r.corroboration_count, 0)} witness corroborations.`,
+      count: group.length,
+      trend: group.some((r) => r.severity === "high" || r.severity === "critical") ? "increasing" : "stable",
+      lat: first.lat,
+      lng: first.lng,
+    });
+  }
+
+  return alerts.sort((a, b) => b.severity - a.severity || b.count - a.count);
+}
+
+const TILE_SIZE = 256;
+
+export function latLngToWorldPx(lat: number, lng: number, zoom: number): { x: number; y: number } {
+  const clampedLat = Math.max(-85.0511, Math.min(85.0511, lat));
+  const sinLat = Math.sin((clampedLat * Math.PI) / 180);
+  const scale = TILE_SIZE * Math.pow(2, zoom);
+  const x = ((lng + 180) / 360) * scale;
+  const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
+  return { x, y };
+}
+
+export function worldPxToLatLng(x: number, y: number, zoom: number): { lat: number; lng: number } {
+  const scale = TILE_SIZE * Math.pow(2, zoom);
+  const lng = (x / scale) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * y) / scale;
+  const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  return { lat, lng };
+}
+
+export function latLngToTileXY(lat: number, lng: number, zoom: number): { x: number; y: number } {
+  const world = latLngToWorldPx(lat, lng, zoom);
+  return {
+    x: Math.floor(world.x / TILE_SIZE),
+    y: Math.floor(world.y / TILE_SIZE),
+  };
+}
+
+export function projectLatLngToViewport(
+  lat: number,
+  lng: number,
+  centerLat: number,
+  centerLng: number,
+  zoom: number,
+  width: number,
+  height: number
+): { x: number; y: number } {
+  const pt = latLngToWorldPx(lat, lng, zoom);
+  const center = latLngToWorldPx(centerLat, centerLng, zoom);
+  return {
+    x: width / 2 + (pt.x - center.x),
+    y: height / 2 + (pt.y - center.y),
+  };
 }
 
 export const DEMO_BASE_TIMESTAMP_MS = Date.UTC(2026, 10, 23, 12, 0, 0);
@@ -350,6 +585,31 @@ export function createInitialDemoDataset(nowMs: number = DEMO_BASE_TIMESTAMP_MS)
       { id: "33333333-3333-4333-8333-333333333306", reporter_id: "11111111-1111-4111-8111-111111111101", reporter_display_name: "Nadia Rahman", is_anonymous_public: false, category: "suspicious_activity", severity: "low", title: "Unattended bag reported near Gulshan-2 circle", description: "Security patrol inspected and confirmed lost luggage returned to owner.", area_name: "Gulshan", address_text: "Gulshan-2 Circle South", lat: 23.7945, lng: 90.4148, occurred_at: isoAgo(2880), created_at: isoAgo(2880), status: "resolved", corroboration_count: 0, suspicion_score: 6, flag_status: "none", suspicion_reasons: [] },
       { id: "33333333-3333-4333-8333-333333333307", reporter_id: "11111111-1111-4111-8111-111111111101", reporter_display_name: "Nadia Rahman", is_anonymous_public: false, category: "vandalism", severity: "low", title: "Test spam report click link http://bit.ly/fake-promo", description: "test test urgent free reward click link now", area_name: "Mohammadpur", address_text: "Town Hall Market", lat: 23.7638, lng: 90.3636, occurred_at: isoAgo(50), created_at: isoAgo(50), status: "pending", corroboration_count: 0, suspicion_score: 84, flag_status: "flagged", suspicion_reasons: ["Suspicious promotional link or test keyword detected", "Short generic description"] },
       { id: "33333333-3333-4333-8333-333333333308", reporter_id: "11111111-1111-4111-8111-111111111101", reporter_display_name: "Nadia Rahman", is_anonymous_public: false, category: "snatching", severity: "high", title: "Duplicate unverified snatching claim near Town Hall", description: "Same incident copy pasted multiple times without clear landmark details.", area_name: "Mohammadpur", address_text: "Town Hall Corner", lat: 23.7640, lng: 90.3638, occurred_at: isoAgo(42), created_at: isoAgo(42), status: "pending", corroboration_count: 0, suspicion_score: 72, flag_status: "flagged", suspicion_reasons: ["Near-duplicate spatial and category report within 60 minutes", "Rapid submission pattern"] },
+    ],
+    reportTips: [
+      {
+        id: "tip-1",
+        report_id: "33333333-3333-4333-8333-333333333301",
+        author_display_name: "Anonymous Citizen",
+        is_anonymous_public: true,
+        body: "Saw the black pulsar motorcycle turn east into Kalabagan 1st Lane around 17:20; CCTV camera on pharmacy corner.",
+        votes: 4,
+        created_at: isoAgo(24),
+      },
+      {
+        id: "tip-2",
+        report_id: "33333333-3333-4333-8333-333333333303",
+        author_display_name: "Commuter Witness",
+        is_anonymous_public: false,
+        body: "Traffic police box is 60m north of Gate B; best lit footpath is on the west side.",
+        votes: 3,
+        created_at: isoAgo(85),
+      },
+    ],
+    emergencyContacts: [
+      { id: "ec-1", name: "Tasnim Rahman (Sister)", phone: "+8801712-440192", relation: "Family", notify_on_sos: true, notify_on_safe_walk: true },
+      { id: "ec-2", name: "Rafiqul Islam (Father)", phone: "+8801819-330214", relation: "Parent", notify_on_sos: true, notify_on_safe_walk: false },
+      { id: "ec-3", name: "Hall Provost Desk (DU)", phone: "+8801755-902110", relation: "Campus", notify_on_sos: true, notify_on_safe_walk: true },
     ],
     distressSignals: [
       { id: "66666666-6666-4666-8666-666666666601", user_id: "11111111-1111-4111-8111-111111111101", citizen_name: "Nadia Rahman", trigger_source: "panic_button", lat: 23.8065, lng: 90.3692, area_name: "Mirpur-10", battery_level: 34, note: "Followed near metro pillar 254, need assistance.", status: "active", claimed_by: null, assigned_unit: null, triggered_at: isoAgo(2.35), sla_target_seconds: 300, dispatch_timeline: [{ at: isoAgo(2.35), status: "active", note: "Panic SOS triggered (Demo Simulated 999 Relay)" }] },

@@ -207,3 +207,28 @@
 - **Production URL:** `https://daak-v2.vercel.app` (deployment `dpl_6xSJajiqBX6Zgu1Rdg6RXyyux4VQ`, `READY`).
 - **Environment Variable:** `NEXT_PUBLIC_SUPABASE_URL` (`https://ygdatgpfjephccykqqsc.supabase.co`) configured for `production`, `preview`, `development`.
 - **Live HTTP Verification (`HEAD https://daak-v2.vercel.app`):** HTTP `200`, `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=()`, and `Strict-Transport-Security: max-age=63072000; includeSubDomains` verified.
+
+---
+
+## Post-Phase 5 Visual & Feature Overhaul (2026-11-24)
+
+### Root Causes Fixed
+1. **Interactive Street Map (`SpatialMapDeck.tsx`):** Replaced the empty SVG box with a real Web Mercator (`EPSG:3857`) slippy tile map (`{a,b,c}.tile.openstreetmap.org`, plus dark-mode CSS filter and geo-referenced offline Dhaka vector underlay), HTML5 Canvas thermal heatmap overlay, pointer drag-to-pan, wheel/button zoom, `Locate me` GPS, Bangladesh area/Thana search (Bangla/Banglish/English), area jump pills, and interactive pin-drop mode for Citizen report submission.
+2. **Municipal Enamel Design System (`globals.css` & `page.tsx`):** Applied `DESIGN.md` & `craft-floor.md` faithfully — `ডাক` Bengali crest + *"When nobody hears, we do"* tagline + live `999` pulse in the Dhaka Civic Teal rail, Priority SOS Dispatch Banner, 3-role segmented switcher, `12px` hairline card architecture (zero one-sided border bars or ghost shadows), and `minmax(0, 1fr)` responsive mobile grid containment.
+3. **Restored Domain Features (`opsLogic.ts`, `CitizenPreviewDeck.tsx`, `page.tsx`):**
+   - **Predictive Crime Alerts (`SPIKE`, `HOTSPOT`, `TREND`)** view with category tabs and `"Focus on map"` jump action.
+   - **3-Factor Area Safety Score Inspector** with CSS `conic-gradient` radial gauge and `40% / 35% / 25%` progress meters.
+   - **5-Factor False-Report Heuristic Breakdown** per flagged report (`User credibility`, `Duplicate pattern`, `Rapid submission`, `Detail consistency`, `Suspicious content`) with risk filters and Admin moderation notes.
+   - **Crime Reports Search/Filters + Category Breakdown + Inspector Mini-Map + Community Tips (`▲ / ▼` voting)**.
+   - **Citizen Mobile Preview** upgraded with embedded interactive street map in the `Map` tab, pin-picker map in `Reports`, Safe Walk creator + `+5m` extend, Trusted Emergency Contacts (`3/3`), and multi-turn Bangla/Banglish DaakAI chat thread with quick-prompt chips.
+
+### Fresh Verification Evidence
+- **Unit Tests:** `npm test` → `17 passed, 0 failed` (`opsLogic.test.mts` + `citizenCore.test.mts`).
+- **Backend Tests:** `uv run --directory apps/api pytest -v` → `20 passed, 1 warning in 1.33s`.
+- **Typecheck & Build:** `npm run typecheck` → exit `0`; `npm run build` (`Next.js 16.4.6 Turbopack`) → compiled & prerendered `3/3` routes cleanly.
+- **Lint & Hygiene:** `npm run lint` → 4/4 `PASS` (`verify_connections.py --quick`) + `PASS` (`verify_schema_rls.py`).
+- **Impeccable Detector:** `impeccable.cmd detect --json apps/web/src` → `[]` (exit `0`).
+- **Live Browser Visual & Interactive Audit (`http://localhost:3000`, `browser` subagents `68352433` & `ac37db4c`):**
+  - Verified `0` console errors, `0` uncaught page errors, `0` failed network requests.
+  - Caught and fixed CARTO `"API KEY REQUIRED"` placeholder tiles by switching to OpenStreetMap standard tiles (`20` tile requests all HTTP `200` rendering real Dhaka streets in Light & Dark mode) and fixed `390×844` SOS Monitor grid expansion (`380px` rendered width, `0` overflow).
+  - Verified Predictive Alerts, 3-Factor Safety Gauge, 5-Factor False-Report triage (`2 → 1 → 0`), Citizen Mobile `Home` / `Map` / `Reports` / `DaakAI` tabs, and `390×844` mobile layout.

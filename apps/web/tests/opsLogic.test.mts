@@ -3,12 +3,16 @@ import test from "node:test";
 
 import {
   computeAreaSafetyScores,
+  computeFalseReportBreakdown,
   createInitialDemoDataset,
   DEMO_BASE_TIMESTAMP_MS,
   filterAndSortFalseReports,
   formatSlaChronometer,
   formatStatusLabel,
+  generatePredictiveAlerts,
+  latLngToTileXY,
   maskReportForRole,
+  projectLatLngToViewport,
   resolveAreaCoordinates,
 } from "../src/lib/opsLogic.ts";
 
@@ -123,4 +127,64 @@ test("resolveAreaCoordinates maps Dhaka neighborhoods to distinct coordinates", 
   assert.notEqual(dhanmondi.lat, mirpur.lat);
   assert.notEqual(mirpur.lat, uttara.lat);
   assert.notEqual(uttara.lng, gulshan.lng);
+});
+
+test("computeAreaSafetyScores returns enriched 3-factor breakdown, nightCount, and dominantCategory", () => {
+  const dataset = createInitialDemoDataset();
+  const scores = computeAreaSafetyScores(dataset.reports);
+  assert.ok(scores.length >= 4);
+  for (const item of scores) {
+    assert.ok(item.factors);
+    assert.ok(item.factors.crimeFrequency >= 0 && item.factors.crimeFrequency <= 100);
+    assert.ok(item.factors.resolutionRate >= 0 && item.factors.resolutionRate <= 100);
+    assert.ok(item.factors.timeOfDay >= 0 && item.factors.timeOfDay <= 100);
+    assert.equal(item.pendingCount, item.reportCount - item.resolvedCount);
+    assert.ok(item.nightCount >= 0);
+    assert.ok(item.dominantCategory.length > 0);
+  }
+});
+
+test("computeFalseReportBreakdown returns 5 deterministic factor scores and riskLevel", () => {
+  const dataset = createInitialDemoDataset();
+  const flagged = filterAndSortFalseReports(dataset.reports);
+  assert.ok(flagged.length >= 2);
+  const breakdown = computeFalseReportBreakdown(flagged[0]);
+  assert.ok(["Critical", "High", "Medium", "Low"].includes(breakdown.riskLevel));
+  assert.ok(breakdown.userCredibility >= 0 && breakdown.userCredibility <= 100);
+  assert.ok(breakdown.duplicatePattern >= 0 && breakdown.duplicatePattern <= 100);
+  assert.ok(breakdown.rapidSubmission >= 0 && breakdown.rapidSubmission <= 100);
+  assert.ok(breakdown.detailConsistency >= 0 && breakdown.detailConsistency <= 100);
+  assert.ok(breakdown.suspiciousContent >= 0 && breakdown.suspiciousContent <= 100);
+});
+
+test("generatePredictiveAlerts produces SPIKE, HOTSPOT, and TREND alerts from Dhaka reports", () => {
+  const dataset = createInitialDemoDataset();
+  const alerts = generatePredictiveAlerts(dataset.reports);
+  assert.ok(alerts.length >= 3);
+  const types = new Set(alerts.map((a) => a.type));
+  assert.ok(types.has("SPIKE") || types.has("HOTSPOT"));
+  assert.ok(types.has("TREND"));
+  for (const alert of alerts) {
+    assert.ok(alert.id.length > 0);
+    assert.ok(alert.severity >= 1 && alert.severity <= 10);
+    assert.ok(["Critical", "High", "Medium", "Low"].includes(alert.severityLabel));
+    assert.ok(alert.message.length > 0);
+    assert.ok(alert.description.length > 0);
+    assert.ok(Number.isFinite(alert.lat) && Number.isFinite(alert.lng));
+    assert.ok(alert.trend === "increasing" || alert.trend === "stable");
+  }
+});
+
+test("Web Mercator helpers accurately project Dhaka coordinates to tiles and viewport pixels", () => {
+  const tile = latLngToTileXY(23.7465, 90.3760, 13);
+  assert.equal(tile.x, 6152);
+  assert.equal(tile.y, 3539);
+
+  const center = projectLatLngToViewport(23.7465, 90.3760, 23.7465, 90.3760, 13, 800, 400);
+  assert.ok(Math.abs(center.x - 400) < 0.5);
+  assert.ok(Math.abs(center.y - 200) < 0.5);
+
+  const north = projectLatLngToViewport(23.8069, 90.3688, 23.7465, 90.3760, 13, 800, 400);
+  assert.ok(north.y < center.y);
+  assert.ok(north.x < center.x);
 });
