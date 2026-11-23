@@ -1,13 +1,16 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CitizenPreviewDeck from "@/components/CitizenPreviewDeck";
 import SpatialMapDeck from "@/components/SpatialMapDeck";
 import {
   computeAreaSafetyScores,
   createInitialDemoDataset,
+  DEMO_BASE_TIMESTAMP_MS,
   filterAndSortFalseReports,
+  findNearestStation,
   formatSlaChronometer,
+  formatStatusLabel,
   maskReportForRole,
   type CrimeReport,
   type CriminalRecord,
@@ -29,12 +32,16 @@ type NavSection =
 type UiStateMode = "live" | "loading" | "empty" | "partial_error" | "fatal_error";
 
 export default function DaakCommandPortal() {
-  const [dataset, setDataset] = useState<DaakDataset>(() => createInitialDemoDataset());
+  const [dataset, setDataset] = useState<DaakDataset>(() =>
+    createInitialDemoDataset(DEMO_BASE_TIMESTAMP_MS)
+  );
   const [role, setRole] = useState<UserRole>("police");
   const [section, setSection] = useState<NavSection>("sos");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [uiState, setUiState] = useState<UiStateMode>("live");
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
+  const [nowMs, setNowMs] = useState<number>(DEMO_BASE_TIMESTAMP_MS);
+  const nowMsRef = useRef<number>(DEMO_BASE_TIMESTAMP_MS);
   const [selectedSosId, setSelectedSosId] = useState<string | null>(
     "66666666-6666-4666-8666-666666666601"
   );
@@ -52,8 +59,27 @@ export default function DaakCommandPortal() {
   }, [theme]);
 
   useEffect(() => {
-    const tick = setInterval(() => setNowMs(Date.now()), 1000);
+    nowMsRef.current = nowMs;
+  }, [nowMs]);
+
+  useEffect(() => {
+    if (uiState !== "live" && uiState !== "partial_error") return;
+    const tick = setInterval(() => {
+      setNowMs((prev) => prev + 1000);
+    }, 1000);
     return () => clearInterval(tick);
+  }, [uiState]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedSosId(null);
+        setSelectedReportId(null);
+        setMobileNavOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
   const currentProfile = dataset.profiles[role];
@@ -72,146 +98,159 @@ export default function DaakCommandPortal() {
     setStatusNotice(`Switched demo session to ${dataset.profiles[nextRole].full_name} (${nextRole})`);
   };
 
-  const handleDispatchSos = (
-    sosId: string,
-    nextStatus: DistressSignal["status"],
-    unitName?: string
-  ) => {
-    const nowIso = new Date().toISOString();
-    setDataset((prev) => ({
-      ...prev,
-      distressSignals: prev.distressSignals.map((sig) =>
-        sig.id !== sosId
-          ? sig
-          : {
-              ...sig,
-              status: nextStatus,
-              claimed_by: sig.claimed_by ?? currentProfile.id,
-              assigned_unit: unitName ?? sig.assigned_unit ?? unitDraft,
-              dispatch_timeline: [
-                ...sig.dispatch_timeline,
-                {
-                  at: nowIso,
-                  status: nextStatus,
-                  note: `${currentProfile.full_name} set status to ${nextStatus}`,
-                },
-              ],
-            }
-      ),
-      activityLogs: [
-        {
-          id: `log-${Date.now()}`,
-          actor_role: role,
-          action: `sos.${nextStatus}`,
-          target_type: "distress_signals",
-          summary: `${currentProfile.full_name} updated SOS to ${nextStatus}`,
-          created_at: nowIso,
-        },
-        ...prev.activityLogs,
-      ],
-    }));
-    setStatusNotice(`Alert updated to ${nextStatus}`);
-  };
+  const handleDispatchSos = useCallback(
+    (sosId: string, nextStatus: DistressSignal["status"], unitName?: string) => {
+      const ts = nowMsRef.current;
+      const nowIso = new Date(ts).toISOString();
+      setDataset((prev) => ({
+        ...prev,
+        distressSignals: prev.distressSignals.map((sig) =>
+          sig.id !== sosId
+            ? sig
+            : {
+                ...sig,
+                status: nextStatus,
+                claimed_by: sig.claimed_by ?? currentProfile.id,
+                assigned_unit: unitName ?? sig.assigned_unit ?? unitDraft,
+                dispatch_timeline: [
+                  ...sig.dispatch_timeline,
+                  {
+                    at: nowIso,
+                    status: nextStatus,
+                    note: `${currentProfile.full_name} set status to ${formatStatusLabel(nextStatus)}`,
+                  },
+                ],
+              }
+        ),
+        activityLogs: [
+          {
+            id: `log-${ts}-${Math.random().toString(36).slice(2, 6)}`,
+            actor_role: role,
+            action: `sos.${nextStatus}`,
+            target_type: "distress_signals",
+            summary: `${currentProfile.full_name} updated SOS to ${formatStatusLabel(nextStatus)}`,
+            created_at: nowIso,
+          },
+          ...prev.activityLogs,
+        ],
+      }));
+      setStatusNotice(`Alert updated to ${formatStatusLabel(nextStatus)}`);
+    },
+    [currentProfile.full_name, currentProfile.id, role, unitDraft]
+  );
 
-  const handleModerateReport = (
-    reportId: string,
-    updates: Partial<Pick<CrimeReport, "status" | "flag_status" | "moderation_note">>
-  ) => {
-    const nowIso = new Date().toISOString();
-    setDataset((prev) => ({
-      ...prev,
-      reports: prev.reports.map((rep) => (rep.id === reportId ? { ...rep, ...updates } : rep)),
-      activityLogs: [
-        {
-          id: `log-${Date.now()}`,
-          actor_role: role,
-          action: "report.moderated",
-          target_type: "reports",
-          summary: `Report moderated (${updates.status ?? updates.flag_status})`,
-          created_at: nowIso,
-        },
-        ...prev.activityLogs,
-      ],
-    }));
-    setStatusNotice("Report moderation saved");
-  };
+  const handleModerateReport = useCallback(
+    (
+      reportId: string,
+      updates: Partial<Pick<CrimeReport, "status" | "flag_status" | "moderation_note">>
+    ) => {
+      const ts = nowMsRef.current;
+      const nowIso = new Date(ts).toISOString();
+      const targetState = updates.status ?? updates.flag_status ?? "updated";
+      setDataset((prev) => ({
+        ...prev,
+        reports: prev.reports.map((rep) => (rep.id === reportId ? { ...rep, ...updates } : rep)),
+        activityLogs: [
+          {
+            id: `log-${ts}-${Math.random().toString(36).slice(2, 6)}`,
+            actor_role: role,
+            action: "report.moderated",
+            target_type: "reports",
+            summary: `Report moderated (${formatStatusLabel(targetState)})`,
+            created_at: nowIso,
+          },
+          ...prev.activityLogs,
+        ],
+      }));
+      setStatusNotice("Report moderation saved");
+    },
+    [role]
+  );
 
-  const handleTriggerSosFromCitizen = (lat: number, lng: number, area: string, note: string) => {
-    const nowIso = new Date().toISOString();
-    const newId = `sos-${Date.now()}`;
-    const created: DistressSignal = {
-      id: newId,
-      user_id: dataset.profiles.citizen.id,
-      citizen_name: dataset.profiles.citizen.full_name,
-      trigger_source: "panic_button",
-      lat,
-      lng,
-      area_name: area,
-      battery_level: 72,
-      note,
-      status: "active",
-      claimed_by: null,
-      assigned_unit: null,
-      triggered_at: nowIso,
-      sla_target_seconds: 300,
-      dispatch_timeline: [{ at: nowIso, status: "active", note }],
-    };
-    setDataset((prev) => ({
-      ...prev,
-      distressSignals: [created, ...prev.distressSignals],
-      activityLogs: [
-        {
-          id: `log-${Date.now()}`,
-          actor_role: "citizen",
-          action: "sos.triggered",
-          target_type: "distress_signals",
-          summary: `New SOS triggered in ${area}`,
-          created_at: nowIso,
-        },
-        ...prev.activityLogs,
-      ],
-    }));
-    setSelectedSosId(newId);
-    setSelectedReportId(null);
-  };
+  const handleTriggerSosFromCitizen = useCallback(
+    (lat: number, lng: number, area: string, note: string) => {
+      const ts = nowMsRef.current;
+      const nowIso = new Date(ts).toISOString();
+      const newId = `sos-${ts}`;
+      const created: DistressSignal = {
+        id: newId,
+        user_id: dataset.profiles.citizen.id,
+        citizen_name: dataset.profiles.citizen.full_name,
+        trigger_source: "panic_button",
+        lat,
+        lng,
+        area_name: area,
+        battery_level: 72,
+        note,
+        status: "active",
+        claimed_by: null,
+        assigned_unit: null,
+        triggered_at: nowIso,
+        sla_target_seconds: 300,
+        dispatch_timeline: [{ at: nowIso, status: "active", note }],
+      };
+      setDataset((prev) => ({
+        ...prev,
+        distressSignals: [created, ...prev.distressSignals],
+        activityLogs: [
+          {
+            id: `log-${ts}-${Math.random().toString(36).slice(2, 6)}`,
+            actor_role: "citizen",
+            action: "sos.triggered",
+            target_type: "distress_signals",
+            summary: `New SOS triggered in ${area}`,
+            created_at: nowIso,
+          },
+          ...prev.activityLogs,
+        ],
+      }));
+      setSelectedSosId(newId);
+      setSelectedReportId(null);
+    },
+    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id]
+  );
 
-  const handleCitizenSubmitReport = (input: {
-    category: CrimeReport["category"];
-    severity: CrimeReport["severity"];
-    title: string;
-    description: string;
-    area_name: string;
-    is_anonymous_public: boolean;
-  }) => {
-    const nowIso = new Date().toISOString();
-    const suspicious = /http|bit\.ly|promo|test test/i.test(`${input.title} ${input.description}`);
-    const newRep: CrimeReport = {
-      id: `rep-${Date.now()}`,
-      reporter_id: dataset.profiles.citizen.id,
-      reporter_display_name: dataset.profiles.citizen.full_name,
-      is_anonymous_public: input.is_anonymous_public,
-      category: input.category,
-      severity: input.severity,
-      title: input.title,
-      description: input.description,
-      area_name: input.area_name,
-      lat: 23.7465,
-      lng: 90.376,
-      occurred_at: nowIso,
-      created_at: nowIso,
-      status: "pending",
-      corroboration_count: 0,
-      suspicion_score: suspicious ? 76 : 10,
-      flag_status: suspicious ? "flagged" : "none",
-      suspicion_reasons: suspicious ? ["Suspicious promotional keyword detected"] : [],
-    };
-    setDataset((prev) => ({
-      ...prev,
-      reports: [newRep, ...prev.reports],
-    }));
-  };
+  const handleCitizenSubmitReport = useCallback(
+    (input: {
+      category: CrimeReport["category"];
+      severity: CrimeReport["severity"];
+      title: string;
+      description: string;
+      area_name: string;
+      is_anonymous_public: boolean;
+    }) => {
+      const ts = nowMsRef.current;
+      const nowIso = new Date(ts).toISOString();
+      const suspicious = /http|bit\.ly|promo|test test/i.test(`${input.title} ${input.description}`);
+      const newRep: CrimeReport = {
+        id: `rep-${ts}`,
+        reporter_id: dataset.profiles.citizen.id,
+        reporter_display_name: dataset.profiles.citizen.full_name,
+        is_anonymous_public: input.is_anonymous_public,
+        category: input.category,
+        severity: input.severity,
+        title: input.title,
+        description: input.description,
+        area_name: input.area_name,
+        lat: 23.7465,
+        lng: 90.376,
+        occurred_at: nowIso,
+        created_at: nowIso,
+        status: "pending",
+        corroboration_count: 0,
+        suspicion_score: suspicious ? 76 : 10,
+        flag_status: suspicious ? "flagged" : "none",
+        suspicion_reasons: suspicious ? ["Suspicious promotional keyword detected"] : [],
+      };
+      setDataset((prev) => ({
+        ...prev,
+        reports: [newRep, ...prev.reports],
+      }));
+    },
+    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id]
+  );
 
-  const handleCorroborate = (reportId: string) => {
+  const handleCorroborate = useCallback((reportId: string) => {
     setDataset((prev) => ({
       ...prev,
       reports: prev.reports.map((r) =>
@@ -219,39 +258,107 @@ export default function DaakCommandPortal() {
       ),
     }));
     setStatusNotice("Corroboration recorded (+1 witness within 1 km)");
-  };
+  }, []);
 
-  const handleEscalateWalk = (walkId: string) => {
-    const walk = dataset.safeWalks.find((w) => w.id === walkId);
-    if (!walk) return;
-    handleTriggerSosFromCitizen(walk.lat, walk.lng, "Dhanmondi", `Safe Walk timeout to ${walk.destination_name}`);
-    setDataset((prev) => ({
-      ...prev,
-      safeWalks: prev.safeWalks.map((w) => (w.id === walkId ? { ...w, status: "escalated" } : w)),
-    }));
-  };
+  const handleEscalateWalk = useCallback(
+    (walkId: string) => {
+      const walk = dataset.safeWalks.find((w) => w.id === walkId);
+      if (!walk) return;
+      const ts = nowMsRef.current;
+      const nowIso = new Date(ts).toISOString();
+      const newId = `sos-${ts}`;
+      const note = `Safe Walk timeout to ${walk.destination_name}`;
+      const created: DistressSignal = {
+        id: newId,
+        user_id: dataset.profiles.citizen.id,
+        citizen_name: dataset.profiles.citizen.full_name,
+        trigger_source: "safe_walk_timeout",
+        lat: walk.lat,
+        lng: walk.lng,
+        area_name: "Dhanmondi",
+        battery_level: 72,
+        note,
+        status: "active",
+        claimed_by: null,
+        assigned_unit: null,
+        triggered_at: nowIso,
+        sla_target_seconds: 300,
+        dispatch_timeline: [{ at: nowIso, status: "active", note }],
+      };
+      setDataset((prev) => ({
+        ...prev,
+        distressSignals: [created, ...prev.distressSignals],
+        safeWalks: prev.safeWalks.map((w) =>
+          w.id === walkId ? { ...w, status: "escalated", escalated_sos_id: newId } : w
+        ),
+        activityLogs: [
+          {
+            id: `log-${ts}-${Math.random().toString(36).slice(2, 6)}`,
+            actor_role: "citizen",
+            action: "safe_walk.escalated",
+            target_type: "distress_signals",
+            summary: `Safe Walk timeout escalated to SOS in Dhanmondi`,
+            created_at: nowIso,
+          },
+          ...prev.activityLogs,
+        ],
+      }));
+      setSelectedSosId(newId);
+      setSelectedReportId(null);
+      setStatusNotice("Safe Walk timeout escalated to Police Monitor");
+    },
+    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id, dataset.safeWalks]
+  );
 
-  const handleCompleteWalk = (walkId: string) => {
+  const handleCompleteWalk = useCallback((walkId: string) => {
     setDataset((prev) => ({
       ...prev,
       safeWalks: prev.safeWalks.map((w) => (w.id === walkId ? { ...w, status: "completed" } : w)),
     }));
     setStatusNotice("Safe Walk completed safely");
-  };
+  }, []);
+
+  const handleSelectReport = useCallback((id: string) => {
+    setSelectedReportId(id);
+    setSelectedSosId(null);
+  }, []);
+
+  const handleSelectSos = useCallback((id: string) => {
+    setSelectedSosId(id);
+    setSelectedReportId(null);
+  }, []);
+
+  const handleSelectReportFromHeatmap = useCallback((id: string) => {
+    setSelectedReportId(id);
+    setSelectedSosId(null);
+    setSection("reports");
+  }, []);
+
+  const handleSelectSosFromHeatmap = useCallback((id: string) => {
+    setSelectedSosId(id);
+    setSelectedReportId(null);
+    setSection("sos");
+  }, []);
+
+  const selectNavSection = useCallback((next: NavSection) => {
+    setSection(next);
+    setMobileNavOpen(false);
+  }, []);
 
   const handleCreateHandover = (e: React.FormEvent) => {
     e.preventDefault();
     if (!handoverSummary.trim()) return;
+    const ts = nowMsRef.current;
     setDataset((prev) => ({
       ...prev,
       shiftHandovers: [
         {
-          id: `ho-${Date.now()}`,
+          id: `ho-${ts}`,
           officer_name: currentProfile.full_name,
           shift_label: handoverShift,
           summary: handoverSummary.trim(),
           priority_areas: ["Dhanmondi", "Mirpur-10"],
-          created_at: new Date().toISOString(),
+          created_at: new Date(ts).toISOString(),
         },
         ...prev.shiftHandovers,
       ],
@@ -263,8 +370,9 @@ export default function DaakCommandPortal() {
   const handleAddCriminal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCrimName.trim()) return;
+    const ts = nowMsRef.current;
     const item: CriminalRecord = {
-      id: `crim-${Date.now()}`,
+      id: `crim-${ts}`,
       full_name: newCrimName.trim(),
       aliases: [],
       crime_categories: ["snatching"],
@@ -278,33 +386,83 @@ export default function DaakCommandPortal() {
     setStatusNotice("Watchlist entry created");
   };
 
-  const activeSosList = dataset.distressSignals.filter((s) =>
-    ["active", "claimed", "responding"].includes(s.status)
+  const activeSosList = useMemo(
+    () => dataset.distressSignals.filter((s) => ["active", "claimed", "responding"].includes(s.status)),
+    [dataset.distressSignals]
   );
-  const falseQueue = filterAndSortFalseReports(dataset.reports);
-  const safetyScores = computeAreaSafetyScores(dataset.reports);
+  const falseQueue = useMemo(() => filterAndSortFalseReports(dataset.reports), [dataset.reports]);
+  const safetyScores = useMemo(() => computeAreaSafetyScores(dataset.reports), [dataset.reports]);
+  const nearestSelectedThana = useMemo(
+    () =>
+      selectedSos
+        ? findNearestStation(dataset.policeStations, selectedSos.lat, selectedSos.lng)
+        : null,
+    [dataset.policeStations, selectedSos]
+  );
+  const maskedSelectedReport = useMemo(
+    () => (selectedReport ? maskReportForRole(selectedReport, role, currentProfile.id) : null),
+    [currentProfile.id, role, selectedReport]
+  );
   const showDrawer =
     uiState === "live" && (section === "sos" || section === "reports") && Boolean(selectedSos || selectedReport);
 
   return (
     <div className="daak-shell">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       {/* Left Navigation Rail */}
       <aside className="daak-rail" aria-label="Primary navigation">
         <div className="daak-brand">
           <div>
-            <h1 className="daak-brand-title">Daak v2</h1>
-            <div style={{ fontSize: "0.75rem", opacity: 0.8 }}>Bangladesh Civic Dispatch</div>
+            <div className="daak-brand-title">Daak v2</div>
+            <div style={{ fontSize: "0.75rem", color: "var(--ink-on-rail-muted)" }}>
+              Bangladesh Civic Dispatch
+            </div>
           </div>
-          <span className="mono" style={{ fontSize: "0.75rem", opacity: 0.8 }}>999</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span className="mono" style={{ fontSize: "0.75rem", color: "var(--ink-on-rail-muted)" }}>
+              999
+            </span>
+            <button
+              type="button"
+              className="daak-mobile-nav-toggle"
+              aria-expanded={mobileNavOpen}
+              aria-controls="daak-primary-nav"
+              aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"}
+              onClick={() => setMobileNavOpen((open) => !open)}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+                {mobileNavOpen ? (
+                  <>
+                    <path d="M18 6L6 18" />
+                    <path d="M6 6l12 12" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M4 6h16" />
+                    <path d="M4 12h16" />
+                    <path d="M4 18h16" />
+                  </>
+                )}
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <nav className="daak-nav-group" aria-label="Dispatch views">
-          <p className="daak-nav-heading">Dispatch Operations</p>
+        <nav
+          id="daak-primary-nav"
+          className="daak-nav-group"
+          data-open={mobileNavOpen ? "true" : "false"}
+          aria-label="Dispatch views"
+        >
+          <p className="daak-nav-heading">Dispatch operations</p>
           <button
             type="button"
             className="daak-nav-btn"
             aria-current={section === "sos" ? "page" : undefined}
-            onClick={() => setSection("sos")}
+            onClick={() => selectNavSection("sos")}
           >
             <span>SOS Monitor</span>
             <span className="mono">{activeSosList.length}</span>
@@ -313,7 +471,7 @@ export default function DaakCommandPortal() {
             type="button"
             className="daak-nav-btn"
             aria-current={section === "reports" ? "page" : undefined}
-            onClick={() => setSection("reports")}
+            onClick={() => selectNavSection("reports")}
           >
             <span>Crime Reports</span>
             <span className="mono">{dataset.reports.length}</span>
@@ -322,7 +480,7 @@ export default function DaakCommandPortal() {
             type="button"
             className="daak-nav-btn"
             aria-current={section === "heatmap" ? "page" : undefined}
-            onClick={() => setSection("heatmap")}
+            onClick={() => selectNavSection("heatmap")}
           >
             <span>Spatial Heatmap</span>
           </button>
@@ -330,17 +488,17 @@ export default function DaakCommandPortal() {
             type="button"
             className="daak-nav-btn"
             aria-current={section === "handovers" ? "page" : undefined}
-            onClick={() => setSection("handovers")}
+            onClick={() => selectNavSection("handovers")}
           >
             <span>Shift Handovers</span>
           </button>
 
-          <p className="daak-nav-heading" style={{ marginTop: "10px" }}>Admin Governance</p>
+          <p className="daak-nav-heading" style={{ marginTop: "10px" }}>Admin governance</p>
           <button
             type="button"
             className="daak-nav-btn"
             aria-current={section === "false_reports" ? "page" : undefined}
-            onClick={() => setSection("false_reports")}
+            onClick={() => selectNavSection("false_reports")}
           >
             <span>False-Report Queue</span>
             <span className="mono">{falseQueue.length}</span>
@@ -349,7 +507,7 @@ export default function DaakCommandPortal() {
             type="button"
             className="daak-nav-btn"
             aria-current={section === "criminals" ? "page" : undefined}
-            onClick={() => setSection("criminals")}
+            onClick={() => selectNavSection("criminals")}
           >
             <span>Criminal Watchlist</span>
           </button>
@@ -357,23 +515,23 @@ export default function DaakCommandPortal() {
             type="button"
             className="daak-nav-btn"
             aria-current={section === "analytics" ? "page" : undefined}
-            onClick={() => setSection("analytics")}
+            onClick={() => selectNavSection("analytics")}
           >
             <span>Analytics & Logs</span>
           </button>
 
-          <p className="daak-nav-heading" style={{ marginTop: "10px" }}>Mobile Surface</p>
+          <p className="daak-nav-heading" style={{ marginTop: "10px" }}>Mobile surface</p>
           <button
             type="button"
             className="daak-nav-btn"
             aria-current={section === "citizen_preview" ? "page" : undefined}
-            onClick={() => setSection("citizen_preview")}
+            onClick={() => selectNavSection("citizen_preview")}
           >
             <span>Citizen Mobile Preview</span>
           </button>
         </nav>
 
-        <div style={{ marginTop: "auto", fontSize: "0.75rem", opacity: 0.78 }}>
+        <div className="daak-rail-footer" data-open={mobileNavOpen ? "true" : "false"}>
           Synthetic Bangladesh demo dataset · simulated 999 relay
         </div>
       </aside>
@@ -382,7 +540,7 @@ export default function DaakCommandPortal() {
       <div className="daak-main-wrap">
         <header className="daak-topbar">
           <div>
-            <h2 className="daak-topbar-title">
+            <h1 className="daak-topbar-title">
               {section === "sos" && "Live SOS Monitor & SLA Dispatch"}
               {section === "reports" && "Crime Reports & Community Corroboration"}
               {section === "heatmap" && "Dhaka PostGIS Heatmap & Area Safety"}
@@ -391,10 +549,12 @@ export default function DaakCommandPortal() {
               {section === "criminals" && "Criminal Watchlist Management"}
               {section === "analytics" && "Operational Analytics & Audit Trail"}
               {section === "citizen_preview" && "Citizen Mobile App (Expo Web Preview)"}
-            </h2>
+            </h1>
             <p style={{ margin: 0, fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-              Signed in: <strong>{currentProfile.full_name}</strong> ({currentProfile.role})
-              {statusNotice ? ` · ${statusNotice}` : ""}
+              Signed in: <strong>{currentProfile.full_name}</strong> ({formatStatusLabel(currentProfile.role)})
+              <span role="status" aria-live="polite">
+                {statusNotice ? ` · ${statusNotice}` : ""}
+              </span>
             </p>
           </div>
 
@@ -434,15 +594,26 @@ export default function DaakCommandPortal() {
             <button
               type="button"
               className="btn"
+              aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
               onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
             >
-              {theme === "light" ? "Dark mode" : "Light mode"}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {theme === "light" ? (
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                ) : (
+                  <>
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+                  </>
+                )}
+              </svg>
+              <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
             </button>
           </div>
         </header>
 
         <div className={`daak-workspace ${showDrawer ? "" : "no-drawer"}`}>
-          <main className="daak-center">
+          <main id="main-content" tabIndex={-1} className="daak-center">
             {uiState === "loading" && (
               <div className="surface-panel" style={{ padding: "18px", display: "flex", flexDirection: "column", gap: "12px" }}>
                 <div style={{ fontSize: "0.875rem", color: "var(--ink-secondary)" }}>
@@ -457,11 +628,11 @@ export default function DaakCommandPortal() {
 
             {uiState === "empty" && (
               <div className="surface-panel" style={{ padding: "24px", textAlign: "left" }}>
-                <h3 style={{ margin: "0 0 6px", fontSize: "1rem" }}>No active records in this queue</h3>
-                <p style={{ margin: "0 0 12px", color: "var(--ink-secondary)" }}>
+                <h2 style={{ margin: "0 0 6px", fontSize: "1rem" }}>No active records in this queue</h2>
+                <p className="prose-measure" style={{ margin: "0 0 12px", color: "var(--ink-secondary)" }}>
                   Open Citizen Mobile Preview to trigger a simulated SOS or report, or restore live demo data.
                 </p>
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                   <button type="button" className="btn btn-primary" onClick={() => setSection("citizen_preview")}>
                     Open Citizen Preview
                   </button>
@@ -478,10 +649,10 @@ export default function DaakCommandPortal() {
                 role="alert"
                 style={{ padding: "24px", borderColor: "var(--signal-emergency)" }}
               >
-                <h3 style={{ margin: "0 0 6px", color: "var(--signal-emergency)" }}>
+                <h2 style={{ margin: "0 0 6px", fontSize: "1.125rem", color: "var(--signal-emergency)" }}>
                   Dispatch stream unavailable
-                </h3>
-                <p style={{ margin: "0 0 12px", color: "var(--ink-secondary)" }}>
+                </h2>
+                <p className="prose-measure" style={{ margin: "0 0 12px", color: "var(--ink-secondary)" }}>
                   FastAPI or Supabase Realtime failed to respond. Retry connecting or restore local demo snapshot.
                 </p>
                 <button type="button" className="btn btn-primary" onClick={() => setUiState("live")}>
@@ -547,14 +718,8 @@ export default function DaakCommandPortal() {
                       selectedId={selectedSosId ?? selectedReportId}
                       categoryFilter={categoryFilter}
                       onCategoryFilterChange={setCategoryFilter}
-                      onSelectReport={(id) => {
-                        setSelectedReportId(id);
-                        setSelectedSosId(null);
-                      }}
-                      onSelectSos={(id) => {
-                        setSelectedSosId(id);
-                        setSelectedReportId(null);
-                      }}
+                      onSelectReport={handleSelectReport}
+                      onSelectSos={handleSelectSos}
                       compact
                     />
 
@@ -577,15 +742,24 @@ export default function DaakCommandPortal() {
                               <tr
                                 key={sig.id}
                                 data-selected={selectedSosId === sig.id}
-                                onClick={() => {
-                                  setSelectedSosId(sig.id);
-                                  setSelectedReportId(null);
-                                }}
+                                onClick={() => handleSelectSos(sig.id)}
                               >
-                                <td className="mono">{sig.id.slice(-6)}</td>
+                                <td className="mono">
+                                  <button
+                                    type="button"
+                                    className="row-trigger-btn mono"
+                                    aria-pressed={selectedSosId === sig.id}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSelectSos(sig.id);
+                                    }}
+                                  >
+                                    {sig.id.slice(-6)}
+                                  </button>
+                                </td>
                                 <td><strong>{sig.area_name}</strong></td>
-                                <td>{sig.trigger_source === "safe_walk_timeout" ? "Safe Walk Timeout" : "Panic SOS"}</td>
-                                <td>{sig.status}</td>
+                                <td>{formatStatusLabel(sig.trigger_source)}</td>
+                                <td>{formatStatusLabel(sig.status)}</td>
                                 <td>{sig.assigned_unit ?? "Unassigned"}</td>
                                 <td>
                                   <span
@@ -628,18 +802,27 @@ export default function DaakCommandPortal() {
                             <tr
                               key={rep.id}
                               data-selected={selectedReportId === rep.id}
-                              onClick={() => {
-                                setSelectedReportId(rep.id);
-                                setSelectedSosId(null);
-                              }}
+                              onClick={() => handleSelectReport(rep.id)}
                             >
-                              <td><strong>{rep.title}</strong></td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="row-trigger-btn"
+                                  aria-pressed={selectedReportId === rep.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectReport(rep.id);
+                                  }}
+                                >
+                                  {rep.title}
+                                </button>
+                              </td>
                               <td>{rep.area_name}</td>
                               <td>{rep.reporter_display_name}</td>
                               <td className="tabular">{rep.corroboration_count}</td>
                               <td>
                                 <span className={`pill ${rep.status === "resolved" ? "pill-safe" : "pill-normal"}`}>
-                                  {rep.status}
+                                  {formatStatusLabel(rep.status)}
                                 </span>
                               </td>
                             </tr>
@@ -659,14 +842,8 @@ export default function DaakCommandPortal() {
                       selectedId={selectedSosId ?? selectedReportId}
                       categoryFilter={categoryFilter}
                       onCategoryFilterChange={setCategoryFilter}
-                      onSelectReport={(id) => {
-                        setSelectedReportId(id);
-                        setSection("reports");
-                      }}
-                      onSelectSos={(id) => {
-                        setSelectedSosId(id);
-                        setSection("sos");
-                      }}
+                      onSelectReport={handleSelectReportFromHeatmap}
+                      onSelectSos={handleSelectSosFromHeatmap}
                     />
                     <div className="daak-table-wrap">
                       <table className="daak-table">
@@ -700,7 +877,12 @@ export default function DaakCommandPortal() {
                 {section === "handovers" && (
                   <div style={{ display: "grid", gap: "14px" }}>
                     <form onSubmit={handleCreateHandover} className="surface-panel" style={{ padding: "14px", display: "grid", gap: "10px" }}>
-                      <h3 style={{ margin: 0, fontSize: "1rem" }}>Log Outgoing Shift Briefing</h3>
+                      <h2 style={{ margin: 0, fontSize: "1rem" }}>Log Outgoing Shift Briefing</h2>
+                      {role === "citizen" && (
+                        <div role="note" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                          Viewing read-only as citizen. Switch 1-Click Demo to Police or Admin to log handovers.
+                        </div>
+                      )}
                       <div>
                         <label htmlFor="ho-shift" style={{ fontSize: "0.75rem", fontWeight: 600 }}>Shift window</label>
                         <input id="ho-shift" className="field-input" value={handoverShift} onChange={(e) => setHandoverShift(e.target.value)} required />
@@ -722,7 +904,7 @@ export default function DaakCommandPortal() {
                           <strong>{ho.shift_label}</strong>
                           <span style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>{ho.officer_name}</span>
                         </div>
-                        <p style={{ margin: "0 0 8px" }}>{ho.summary}</p>
+                        <p className="prose-measure" style={{ margin: "0 0 8px" }}>{ho.summary}</p>
                         <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
                           Priority areas: {ho.priority_areas.join(", ")}
                         </div>
@@ -732,57 +914,78 @@ export default function DaakCommandPortal() {
                 )}
 
                 {section === "false_reports" && (
-                  <div className="daak-table-wrap">
-                    <table className="daak-table">
-                      <thead>
-                        <tr>
-                          <th>Flagged Report</th>
-                          <th>Area</th>
-                          <th>Suspicion</th>
-                          <th>Heuristic Reasons</th>
-                          <th>Admin Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {falseQueue.map((rep) => (
-                          <tr key={rep.id}>
-                            <td><strong>{rep.title}</strong></td>
-                            <td>{rep.area_name}</td>
-                            <td>
-                              <span className="pill pill-breach mono">{rep.suspicion_score}/100</span>
-                            </td>
-                            <td style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                              {rep.suspicion_reasons.join(" · ")}
-                            </td>
-                            <td>
-                              <div style={{ display: "flex", gap: "6px" }}>
-                                <button
-                                  type="button"
-                                  className="btn"
-                                  disabled={role !== "admin"}
-                                  onClick={() => handleModerateReport(rep.id, { flag_status: "cleared", status: "verified" })}
-                                >
-                                  Clear & verify
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-emergency"
-                                  disabled={role !== "admin"}
-                                  onClick={() => handleModerateReport(rep.id, { flag_status: "confirmed_false", status: "rejected" })}
-                                >
-                                  Confirm false
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div style={{ display: "grid", gap: "12px" }}>
+                    {role !== "admin" && (
+                      <div className="surface-muted" role="note" style={{ padding: "10px 14px", fontSize: "0.8125rem", color: "var(--ink-secondary)" }}>
+                        Viewing read-only as {formatStatusLabel(role)}. Switch 1-Click Demo to Admin to moderate flagged reports.
+                      </div>
+                    )}
+                    {falseQueue.length === 0 ? (
+                      <div className="surface-panel" style={{ padding: "24px" }}>
+                        <h2 style={{ margin: "0 0 6px", fontSize: "1rem" }}>All flagged reports have been triaged</h2>
+                        <p className="prose-measure" style={{ margin: 0, color: "var(--ink-secondary)" }}>
+                          No pending false-report alerts remain in the automated 5-factor heuristic queue.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="daak-table-wrap">
+                        <table className="daak-table">
+                          <thead>
+                            <tr>
+                              <th>Flagged Report</th>
+                              <th>Area</th>
+                              <th>Suspicion</th>
+                              <th>Heuristic Reasons</th>
+                              <th>Admin Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {falseQueue.map((rep) => (
+                              <tr key={rep.id}>
+                                <td><strong>{rep.title}</strong></td>
+                                <td>{rep.area_name}</td>
+                                <td>
+                                  <span className="pill pill-breach mono">{rep.suspicion_score}/100</span>
+                                </td>
+                                <td className="prose-measure" style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                                  {rep.suspicion_reasons.join(" · ")}
+                                </td>
+                                <td>
+                                  <div style={{ display: "flex", gap: "6px" }}>
+                                    <button
+                                      type="button"
+                                      className="btn"
+                                      disabled={role !== "admin"}
+                                      onClick={() => handleModerateReport(rep.id, { flag_status: "cleared", status: "verified" })}
+                                    >
+                                      Clear & verify
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-emergency"
+                                      disabled={role !== "admin"}
+                                      onClick={() => handleModerateReport(rep.id, { flag_status: "confirmed_false", status: "rejected" })}
+                                    >
+                                      Confirm false
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {section === "criminals" && (
                   <div style={{ display: "grid", gap: "14px" }}>
+                    {role !== "admin" && (
+                      <div className="surface-muted" role="note" style={{ padding: "10px 14px", fontSize: "0.8125rem", color: "var(--ink-secondary)" }}>
+                        Viewing read-only as {formatStatusLabel(role)}. Switch 1-Click Demo to Admin to edit the watchlist.
+                      </div>
+                    )}
                     <form onSubmit={handleAddCriminal} className="surface-panel" style={{ padding: "14px", display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "flex-end" }}>
                       <div style={{ flex: "1 1 200px" }}>
                         <label htmlFor="crim-name" style={{ fontSize: "0.75rem", fontWeight: 600 }}>Suspect name</label>
@@ -813,8 +1016,8 @@ export default function DaakCommandPortal() {
                             <tr key={crim.id}>
                               <td><strong>{crim.full_name}</strong></td>
                               <td>{crim.last_known_area}</td>
-                              <td>{crim.risk_level}</td>
-                              <td>{crim.status}</td>
+                              <td>{formatStatusLabel(crim.risk_level)}</td>
+                              <td>{formatStatusLabel(crim.status)}</td>
                               <td>
                                 <button
                                   type="button"
@@ -876,9 +1079,9 @@ export default function DaakCommandPortal() {
                           {dataset.activityLogs.map((log) => (
                             <tr key={log.id}>
                               <td className="mono">{log.action}</td>
-                              <td>{log.actor_role}</td>
-                              <td>{log.target_type}</td>
-                              <td>{log.summary}</td>
+                              <td>{formatStatusLabel(log.actor_role)}</td>
+                              <td>{formatStatusLabel(log.target_type)}</td>
+                              <td className="prose-measure">{log.summary}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -911,23 +1114,41 @@ export default function DaakCommandPortal() {
               {selectedSos && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h3 style={{ margin: 0, fontSize: "1rem" }}>
+                    <h2 style={{ margin: 0, fontSize: "1rem" }}>
                       Case <span className="mono">#{selectedSos.id.slice(-6)}</span>
-                    </h3>
-                    <button type="button" className="btn" onClick={() => setSelectedSosId(null)}>
-                      Close
+                    </h2>
+                    <button
+                      type="button"
+                      className="btn"
+                      aria-label="Close case inspector"
+                      onClick={() => setSelectedSosId(null)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <path d="M18 6L6 18" />
+                        <path d="M6 6l12 12" />
+                      </svg>
+                      <span>Close</span>
                     </button>
                   </div>
                   <div className="surface-muted" style={{ padding: "10px 12px", display: "grid", gap: "4px" }}>
-                    <div><strong>{selectedSos.area_name}</strong> · {selectedSos.status}</div>
+                    <div>
+                      <strong>{selectedSos.area_name}</strong> · {formatStatusLabel(selectedSos.status)}
+                    </div>
                     <div className="mono" style={{ fontSize: "0.75rem" }}>
                       {selectedSos.lat.toFixed(4)}, {selectedSos.lng.toFixed(4)}
                     </div>
                     <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
                       Citizen: {selectedSos.citizen_name} · Battery: {selectedSos.battery_level ?? "N/A"}%
                     </div>
+                    {nearestSelectedThana && (
+                      <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
+                        Nearest Thana: <strong>{nearestSelectedThana.station.name_en}</strong> (
+                        {(nearestSelectedThana.distanceMeters / 1000).toFixed(2)} km ·{" "}
+                        <span className="mono">{nearestSelectedThana.station.phone}</span>)
+                      </div>
+                    )}
                   </div>
-                  <p style={{ margin: 0 }}>{selectedSos.note}</p>
+                  <p className="prose-measure" style={{ margin: 0 }}>{selectedSos.note}</p>
 
                   <div>
                     <label htmlFor="unit-assign-input" style={{ fontSize: "0.75rem", fontWeight: 600 }}>
@@ -975,11 +1196,11 @@ export default function DaakCommandPortal() {
                   </div>
 
                   <div>
-                    <h4 style={{ margin: "6px 0", fontSize: "0.8125rem" }}>Dispatch Timeline</h4>
+                    <h3 style={{ margin: "6px 0", fontSize: "0.8125rem" }}>Dispatch Timeline</h3>
                     <div style={{ display: "grid", gap: "6px", fontSize: "0.75rem" }}>
                       {selectedSos.dispatch_timeline.map((ev, idx) => (
                         <div key={idx} className="surface-muted" style={{ padding: "6px 8px" }}>
-                          <strong>{ev.status}</strong> — {ev.note}
+                          <strong>{formatStatusLabel(ev.status)}</strong> — {ev.note}
                         </div>
                       ))}
                     </div>
@@ -987,41 +1208,56 @@ export default function DaakCommandPortal() {
                 </>
               )}
 
-              {selectedReport && (
+              {maskedSelectedReport && (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <h3 style={{ margin: 0, fontSize: "1rem" }}>Report Inspector</h3>
-                    <button type="button" className="btn" onClick={() => setSelectedReportId(null)}>
-                      Close
+                    <h2 style={{ margin: 0, fontSize: "1rem" }}>Report Inspector</h2>
+                    <button
+                      type="button"
+                      className="btn"
+                      aria-label="Close report inspector"
+                      onClick={() => setSelectedReportId(null)}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <path d="M18 6L6 18" />
+                        <path d="M6 6l12 12" />
+                      </svg>
+                      <span>Close</span>
                     </button>
                   </div>
-                  <strong>{selectedReport.title}</strong>
-                  <p style={{ margin: 0 }}>{selectedReport.description}</p>
-                  <div className="surface-muted" style={{ padding: "10px 12px", fontSize: "0.75rem" }}>
-                    <div>Area: {selectedReport.area_name}</div>
-                    <div>Witnesses (&lt;= 1 km): {selectedReport.corroboration_count}</div>
-                    {role !== "citizen" && <div>Suspicion score: {selectedReport.suspicion_score}/100</div>}
+                  <strong>{maskedSelectedReport.title}</strong>
+                  <p className="prose-measure" style={{ margin: 0 }}>{maskedSelectedReport.description}</p>
+                  <div className="surface-muted" style={{ padding: "10px 12px", fontSize: "0.75rem", display: "grid", gap: "4px" }}>
+                    <div>Area: {maskedSelectedReport.area_name}</div>
+                    <div>Reporter: {maskedSelectedReport.reporter_display_name}</div>
+                    {maskedSelectedReport.is_anonymous_public && (
+                      <div>
+                        <span className="pill pill-normal">Publicly anonymous · internal accountability active</span>
+                      </div>
+                    )}
+                    <div>Witnesses (&lt;= 1 km): {maskedSelectedReport.corroboration_count}</div>
+                    {role !== "citizen" && <div>Suspicion score: {maskedSelectedReport.suspicion_score}/100</div>}
                   </div>
                   {role !== "citizen" && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                       <button
                         type="button"
                         className="btn btn-primary"
-                        onClick={() => handleModerateReport(selectedReport.id, { status: "verified" })}
+                        onClick={() => handleModerateReport(maskedSelectedReport.id, { status: "verified" })}
                       >
                         Verify report
                       </button>
                       <button
                         type="button"
                         className="btn"
-                        onClick={() => handleModerateReport(selectedReport.id, { status: "investigating" })}
+                        onClick={() => handleModerateReport(maskedSelectedReport.id, { status: "investigating" })}
                       >
                         Mark investigating
                       </button>
                       <button
                         type="button"
                         className="btn"
-                        onClick={() => handleModerateReport(selectedReport.id, { status: "resolved" })}
+                        onClick={() => handleModerateReport(maskedSelectedReport.id, { status: "resolved" })}
                       >
                         Mark resolved
                       </button>

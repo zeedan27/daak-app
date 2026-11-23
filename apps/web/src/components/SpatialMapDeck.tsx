@@ -31,7 +31,7 @@ function projectPoint(lat: number, lng: number): { x: number; y: number } {
   };
 }
 
-export default function SpatialMapDeck({
+function SpatialMapDeck({
   stations,
   reports,
   signals,
@@ -182,13 +182,14 @@ export default function SpatialMapDeck({
               type="button"
               onClick={() => onSelectReport(report.id)}
               title={`${report.area_name}: ${report.title}`}
+              aria-pressed={isSelected}
               style={{
                 position: "absolute",
                 left: `${pos.x}%`,
                 top: `${pos.y}%`,
                 transform: "translate(-50%, -50%)",
-                width: isSelected ? "24px" : "18px",
-                height: isSelected ? "24px" : "18px",
+                width: isSelected ? "28px" : "24px",
+                height: isSelected ? "28px" : "24px",
                 borderRadius: "999px",
                 backgroundColor: color,
                 border: isSelected ? "2px solid var(--ink-primary)" : "2px solid var(--bg-surface)",
@@ -210,19 +211,20 @@ export default function SpatialMapDeck({
               type="button"
               onClick={() => onSelectSos(sig.id)}
               title={`SOS (${sig.status}) in ${sig.area_name}`}
+              aria-pressed={isSelected}
               style={{
                 position: "absolute",
                 left: `${pos.x}%`,
                 top: `${pos.y}%`,
                 transform: "translate(-50%, -50%)",
-                width: isSelected ? "30px" : "24px",
-                height: isSelected ? "30px" : "24px",
+                width: isSelected ? "34px" : "30px",
+                height: isSelected ? "34px" : "30px",
                 borderRadius: "999px",
-                backgroundColor: "var(--signal-emergency)",
-                color: "#ffffff",
+                backgroundColor: "var(--signal-emergency-fill)",
+                color: "var(--signal-emergency-on-fill)",
                 fontSize: "0.625rem",
                 fontWeight: 700,
-                border: isSelected ? "2px solid var(--ink-primary)" : "2px solid #ffffff",
+                border: isSelected ? "2px solid var(--ink-primary)" : "2px solid var(--signal-emergency-on-fill)",
                 cursor: "pointer",
                 zIndex: 5,
                 display: "flex",
@@ -235,6 +237,28 @@ export default function SpatialMapDeck({
             </button>
           );
         })}
+
+        {visibleReports.length === 0 && (
+          <div
+            role="status"
+            style={{
+              position: "absolute",
+              left: "12px",
+              bottom: "12px",
+              padding: "6px 10px",
+              borderRadius: "6px",
+              backgroundColor: "var(--bg-surface)",
+              border: "1px solid var(--border-hairline)",
+              fontSize: "0.75rem",
+              color: "var(--ink-secondary)",
+              zIndex: 6,
+            }}
+          >
+            {activeSignals.length === 0
+              ? "No active reports match this category filter."
+              : "No verified reports match this category filter."}
+          </div>
+        )}
       </div>
 
       {/* Legend */}
@@ -269,3 +293,5 @@ export default function SpatialMapDeck({
     </section>
   );
 }
+
+export default React.memo(SpatialMapDeck);

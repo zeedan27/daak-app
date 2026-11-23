@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   computeAreaSafetyScores,
   findNearestStation,
+  formatStatusLabel,
   haversineMeters,
   maskReportForRole,
   type CrimeReport,
@@ -35,7 +36,7 @@ interface CitizenPreviewDeckProps {
 
 type MobileTab = "home" | "map" | "reports" | "ai";
 
-export default function CitizenPreviewDeck({
+function CitizenPreviewDeck({
   citizenProfile,
   stations,
   reports,
@@ -71,11 +72,16 @@ export default function CitizenPreviewDeck({
   const dhanmondiScore = safetyScores.find((s) => s.area.toLowerCase().includes("dhanmondi"))?.score ?? 78;
   const activeWalk = safeWalks.find((w) => w.status === "active");
 
+  const triggerSosRef = useRef(onTriggerSos);
+  useEffect(() => {
+    triggerSosRef.current = onTriggerSos;
+  }, [onTriggerSos]);
+
   useEffect(() => {
     if (countdown === null) return;
     if (countdown <= 0) {
       setCountdown(null);
-      onTriggerSos(
+      triggerSosRef.current(
         userLat,
         userLng,
         "Dhanmondi",
@@ -86,7 +92,7 @@ export default function CitizenPreviewDeck({
     }
     const timer = setTimeout(() => setCountdown((c) => (c !== null ? c - 1 : null)), 1000);
     return () => clearTimeout(timer);
-  }, [countdown, onTriggerSos]);
+  }, [countdown]);
 
   const handlePublishReport = (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,7 +185,12 @@ export default function CitizenPreviewDeck({
               }}
             >
               <span>{sosSentBanner}</span>
-              <button type="button" className="btn" onClick={() => setSosSentBanner(null)} style={{ padding: "2px 8px" }}>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setSosSentBanner(null)}
+                style={{ minHeight: "40px", minWidth: "44px", padding: "4px 10px" }}
+              >
                 Dismiss
               </button>
             </div>
@@ -245,6 +256,8 @@ export default function CitizenPreviewDeck({
                       width: "148px",
                       height: "148px",
                       borderRadius: "999px",
+                      backgroundColor: "var(--signal-emergency-fill)",
+                      color: "var(--signal-emergency-on-fill)",
                       border: "4px solid var(--signal-emergency-soft)",
                       fontSize: "1.125rem",
                       fontWeight: 700,
@@ -264,6 +277,10 @@ export default function CitizenPreviewDeck({
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
                     <div
                       className="mono"
+                      role="timer"
+                      aria-live="assertive"
+                      aria-atomic="true"
+                      aria-label={`SOS sending in ${countdown} seconds`}
                       style={{
                         width: "120px",
                         height: "120px",
@@ -298,9 +315,9 @@ export default function CitizenPreviewDeck({
 
               {/* Nearby Reports with 1 km Corroboration */}
               <div>
-                <h3 style={{ margin: "4px 0 8px", fontSize: "0.9375rem", fontWeight: 600 }}>
+                <h2 style={{ margin: "4px 0 8px", fontSize: "0.9375rem", fontWeight: 600 }}>
                   Nearby Verified Reports
-                </h3>
+                </h2>
                 <div className="surface-panel" style={{ overflow: "hidden" }}>
                   {publicReports.slice(0, 4).map((rep) => {
                     const dist = haversineMeters(userLat, userLng, rep.lat, rep.lng);
@@ -323,7 +340,7 @@ export default function CitizenPreviewDeck({
                           </span>
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "var(--ink-secondary)" }}>
-                          {rep.area_name} · By {rep.reporter_display_name} · {rep.status}
+                          {rep.area_name} · By {rep.reporter_display_name} · {formatStatusLabel(rep.status)}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                           <button
@@ -348,7 +365,7 @@ export default function CitizenPreviewDeck({
 
           {tab === "map" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <h3 style={{ margin: 0, fontSize: "0.9375rem" }}>Dhaka Area Safety Scores</h3>
+              <h2 style={{ margin: 0, fontSize: "0.9375rem" }}>Dhaka Area Safety Scores</h2>
               {safetyScores.map((item) => (
                 <div
                   key={item.area}
@@ -376,7 +393,7 @@ export default function CitizenPreviewDeck({
 
           {tab === "reports" && (
             <form onSubmit={handlePublishReport} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <h3 style={{ margin: 0, fontSize: "0.9375rem" }}>Report an Incident</h3>
+              <h2 style={{ margin: 0, fontSize: "0.9375rem" }}>Report an Incident</h2>
               {reportMsg && (
                 <div className="pill pill-safe" style={{ padding: "8px 10px", borderRadius: "6px" }}>
                   {reportMsg}
@@ -445,8 +462,13 @@ export default function CitizenPreviewDeck({
                   required
                 />
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "44px", fontSize: "0.8125rem" }}>
-                <input type="checkbox" checked={isAnonymous} onChange={(e) => setIsAnonymous(e.target.checked)} />
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "44px", fontSize: "0.8125rem", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={isAnonymous}
+                  onChange={(e) => setIsAnonymous(e.target.checked)}
+                  style={{ width: "18px", height: "18px", flexShrink: 0 }}
+                />
                 Hide my name publicly (retained internally for Police)
               </label>
               <button type="submit" className="btn btn-primary" style={{ minHeight: "48px" }}>
@@ -457,7 +479,7 @@ export default function CitizenPreviewDeck({
 
           {tab === "ai" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <h3 style={{ margin: 0, fontSize: "0.9375rem" }}>DaakAI (Bangla / Banglish)</h3>
+              <h2 style={{ margin: 0, fontSize: "0.9375rem" }}>DaakAI (Bangla / Banglish)</h2>
               <form onSubmit={handleAskAi} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 <label htmlFor="daakai-input" style={{ fontSize: "0.75rem", fontWeight: 600 }}>
                   Ask about an area or emergency step
@@ -478,7 +500,7 @@ export default function CitizenPreviewDeck({
                 </div>
               )}
 
-              <h4 style={{ margin: "6px 0 2px", fontSize: "0.8125rem" }}>Emergency & Watchlist</h4>
+              <h3 style={{ margin: "6px 0 2px", fontSize: "0.8125rem" }}>Emergency & Watchlist</h3>
               <div className="surface-panel" style={{ padding: "10px 12px", fontSize: "0.75rem" }}>
                 <div>National Emergency: <strong className="mono">999</strong></div>
                 <div>{nearest?.station.name_en}: <strong className="mono">{nearest?.station.phone}</strong></div>
@@ -487,11 +509,23 @@ export default function CitizenPreviewDeck({
                 .filter((c) => c.status !== "archived")
                 .map((c) => (
                   <div key={c.id} className="surface-panel" style={{ padding: "8px 10px", fontSize: "0.75rem" }}>
-                    <strong>{c.full_name}</strong> · {c.last_known_area} ({c.status})
+                    <strong>{c.full_name}</strong> · {c.last_known_area} ({formatStatusLabel(c.status)})
                   </div>
                 ))}
             </div>
           )}
+          <div
+            style={{
+              marginTop: "auto",
+              paddingTop: "8px",
+              borderTop: "1px solid var(--border-hairline)",
+              fontSize: "0.6875rem",
+              color: "var(--ink-secondary)",
+              textAlign: "center",
+            }}
+          >
+            Demo dataset · simulated Bangladesh incidents & 999 relay
+          </div>
         </div>
 
         {/* Native 4-Tab Bottom Bar */}
@@ -508,6 +542,7 @@ export default function CitizenPreviewDeck({
             <button
               key={item}
               type="button"
+              aria-current={tab === item ? "page" : undefined}
               onClick={() => setTab(item)}
               style={{
                 minHeight: "50px",
@@ -527,13 +562,13 @@ export default function CitizenPreviewDeck({
 
       {/* Live Walkthrough Instructions for Portfolio Reviewers */}
       <div className="surface-panel" style={{ flex: "1 1 280px", padding: "16px" }}>
-        <h3 style={{ margin: "0 0 8px", fontSize: "1rem", fontWeight: 600 }}>
+        <h2 style={{ margin: "0 0 8px", fontSize: "1rem", fontWeight: 600 }}>
           Live End-to-End Demo Flow
-        </h3>
-        <p style={{ margin: "0 0 10px", fontSize: "0.875rem", color: "var(--ink-secondary)" }}>
+        </h2>
+        <p className="prose-measure" style={{ margin: "0 0 10px", fontSize: "0.875rem", color: "var(--ink-secondary)" }}>
           This Expo Web Preview shares live state with the Police & Admin Command Deck:
         </p>
-        <ol style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.875rem" }}>
+        <ol className="prose-measure" style={{ margin: 0, paddingLeft: "18px", display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.875rem" }}>
           <li>Tap <strong>SOS</strong> in the phone frame (watch the 5-second cancelable countdown) or tap <strong>Simulate timeout</strong> on the Safe Walk banner.</li>
           <li>Switch back to <strong>SOS Monitor</strong> in the left rail (or select <strong>Demo Police</strong>) to watch the new alert appear with a live <span className="mono">MM:SS</span> SLA chronometer.</li>
           <li>Submit an anonymous report under <strong>Reports</strong> and verify that public views mask the citizen identity while Police/Admin triage retains internal accountability.</li>
@@ -542,3 +577,5 @@ export default function CitizenPreviewDeck({
     </div>
   );
 }
+
+export default React.memo(CitizenPreviewDeck);

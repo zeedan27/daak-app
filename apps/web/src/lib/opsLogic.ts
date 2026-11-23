@@ -199,7 +199,12 @@ export function maskReportForRole(
 
 export function filterAndSortFalseReports(reports: CrimeReport[]): CrimeReport[] {
   return reports
-    .filter((r) => r.flag_status === "flagged" || r.suspicion_score >= 50)
+    .filter(
+      (r) =>
+        r.flag_status !== "cleared" &&
+        r.flag_status !== "confirmed_false" &&
+        (r.flag_status === "flagged" || r.suspicion_score >= 50)
+    )
     .slice()
     .sort((a, b) => b.suspicion_score - a.suspicion_score);
 }
@@ -233,7 +238,49 @@ export function computeAreaSafetyScores(reports: CrimeReport[]): AreaSafetyScore
   return out.sort((a, b) => a.score - b.score);
 }
 
-export function createInitialDemoDataset(nowMs: number = Date.now()): DaakDataset {
+export const DEMO_BASE_TIMESTAMP_MS = Date.UTC(2026, 10, 23, 12, 0, 0);
+
+const STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  claimed: "Claimed",
+  responding: "Responding",
+  resolved: "Resolved",
+  cancelled: "Cancelled",
+  false_alarm: "False alarm",
+  pending: "Pending",
+  verified: "Verified",
+  investigating: "Investigating",
+  rejected: "Rejected",
+  none: "None",
+  flagged: "Flagged",
+  cleared: "Cleared",
+  confirmed_false: "Confirmed false",
+  wanted: "Wanted",
+  in_custody: "In custody",
+  archived: "Archived",
+  panic_button: "Panic SOS",
+  safe_walk_timeout: "Safe Walk timeout",
+  distress_signals: "Distress signals",
+  reports: "Crime reports",
+  snatching: "Snatching",
+  harassment: "Harassment",
+  theft: "Theft",
+  fraud: "Fraud",
+  vandalism: "Vandalism",
+  assault: "Assault",
+  suspicious_activity: "Suspicious activity",
+  traffic_hazard: "Traffic hazard",
+  other: "Other",
+};
+
+export function formatStatusLabel(raw: string): string {
+  const mapped = STATUS_LABELS[raw];
+  if (mapped) return mapped;
+  const cleaned = raw.replace(/_/g, " ").trim();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "";
+}
+
+export function createInitialDemoDataset(nowMs: number = DEMO_BASE_TIMESTAMP_MS): DaakDataset {
   const isoAgo = (minutes: number) => new Date(nowMs - minutes * 60_000).toISOString();
   const isoAhead = (minutes: number) => new Date(nowMs + minutes * 60_000).toISOString();
 
