@@ -7,11 +7,15 @@ export interface MobileThemePalette {
   canvas: string;
   surface: string;
   railMuted: string;
+  railCommitted: string;
   primaryTeal: string;
+  onPrimary: string;
   inkPrimary: string;
   inkSecondary: string;
   hairline: string;
   emergencyCrimson: string;
+  emergencyFill: string;
+  onEmergency: string;
   emergencySoft: string;
   warningAmber: string;
   safeEmerald: string;
@@ -22,11 +26,15 @@ export const MOBILE_PALETTE: Record<"light" | "dark", MobileThemePalette> = {
     canvas: "#F6F7F4",
     surface: "#FFFFFF",
     railMuted: "#ECEFEB",
+    railCommitted: "#0F514A",
     primaryTeal: "#0F514A",
+    onPrimary: "#FFFFFF",
     inkPrimary: "#131C1E",
     inkSecondary: "#4B5B5E",
     hairline: "#D5DDD9",
     emergencyCrimson: "#C81E2B",
+    emergencyFill: "#C81E2B",
+    onEmergency: "#FFFFFF",
     emergencySoft: "#FDECEC",
     warningAmber: "#B45309",
     safeEmerald: "#15803D",
@@ -35,11 +43,15 @@ export const MOBILE_PALETTE: Record<"light" | "dark", MobileThemePalette> = {
     canvas: "#11171A",
     surface: "#182126",
     railMuted: "#1E292F",
+    railCommitted: "#0C1114",
     primaryTeal: "#2DD4BF",
+    onPrimary: "#091314",
     inkPrimary: "#EEF2F1",
     inkSecondary: "#9EB0B3",
     hairline: "#26343A",
     emergencyCrimson: "#F87171",
+    emergencyFill: "#991B1B",
+    onEmergency: "#FEF2F2",
     emergencySoft: "#451218",
     warningAmber: "#FBBF24",
     safeEmerald: "#4ADE80",

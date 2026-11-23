@@ -6,6 +6,7 @@ import {
   canCorroborateIncident,
   createSosCountdown,
   evaluateSafeWalkDeadline,
+  MOBILE_PALETTE,
   resolveBanglaOrBanglishThana,
   tickSosCountdown,
 } from "../src/citizenCore.ts";
@@ -64,4 +65,18 @@ test("resolveBanglaOrBanglishThana matches Bangla and Banglish queries", () => {
 
   const tsc = resolveBanglaOrBanglishThana("Around TSC Dhaka University");
   assert.equal(tsc.name_en, "Shahbagh Police Station");
+});
+
+test("MOBILE_PALETTE light and dark themes expose contrast-safe semantic tokens", () => {
+  const hexRe = /^#[0-9A-Fa-f]{6}$/;
+  for (const scheme of ["light", "dark"] as const) {
+    const p = MOBILE_PALETTE[scheme];
+    assert.match(p.railCommitted, hexRe);
+    assert.match(p.emergencyFill, hexRe);
+    assert.match(p.onPrimary, hexRe);
+    assert.match(p.onEmergency, hexRe);
+  }
+  assert.notEqual(MOBILE_PALETTE.light.railCommitted, MOBILE_PALETTE.dark.railCommitted);
+  assert.notEqual(MOBILE_PALETTE.light.emergencyFill, MOBILE_PALETTE.dark.emergencyFill);
+  assert.notEqual(MOBILE_PALETTE.light.onPrimary, MOBILE_PALETTE.dark.onPrimary);
 });

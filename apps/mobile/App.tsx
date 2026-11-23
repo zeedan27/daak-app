@@ -125,7 +125,7 @@ export default function App() {
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
 
       {/* Top Header */}
-      <View style={[styles.header, { backgroundColor: colors.primaryTeal }]}>
+      <View style={[styles.header, { backgroundColor: colors.railCommitted }]}>
         <View>
           <Text style={styles.headerSub}>Dhanmondi, Dhaka · Demo Citizen</Text>
           <Text style={styles.headerTitle}>Daak Safety</Text>
@@ -147,7 +147,11 @@ export default function App() {
             <Text style={{ color: colors.emergencyCrimson, fontWeight: "700" }}>
               Connection delayed — retry or call 999 directly.
             </Text>
-            <Pressable style={[styles.actionBtn, { borderColor: colors.hairline, marginTop: 8 }]} onPress={() => setViewMode("live")}>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.actionBtn, { borderColor: colors.hairline, marginTop: 8 }]}
+              onPress={() => setViewMode("live")}
+            >
               <Text style={{ color: colors.inkPrimary, fontWeight: "600" }}>Retry</Text>
             </Pressable>
           </View>
@@ -156,7 +160,11 @@ export default function App() {
         {viewMode === "empty" && (
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
             <Text style={{ color: colors.inkPrimary, fontWeight: "600" }}>No nearby reports</Text>
-            <Pressable style={[styles.actionBtn, { borderColor: colors.hairline, marginTop: 8 }]} onPress={() => setViewMode("live")}>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.actionBtn, { borderColor: colors.hairline, marginTop: 8 }]}
+              onPress={() => setViewMode("live")}
+            >
               <Text style={{ color: colors.inkPrimary }}>Restore demo feed</Text>
             </Pressable>
           </View>
@@ -177,12 +185,14 @@ export default function App() {
                 </Text>
                 <View style={styles.rowGap}>
                   <Pressable
+                    accessibilityRole="button"
                     style={[styles.actionBtn, { backgroundColor: colors.primaryTeal, flex: 1 }]}
                     onPress={() => setWalkActive(false)}
                   >
-                    <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>Check in safe</Text>
+                    <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Check in safe</Text>
                   </Pressable>
                   <Pressable
+                    accessibilityRole="button"
                     style={[styles.actionBtn, { borderColor: colors.hairline, backgroundColor: colors.surface, flex: 1 }]}
                     onPress={() => {
                       setWalkDeadline(new Date(Date.now() - 1000).toISOString());
@@ -201,11 +211,11 @@ export default function App() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Trigger SOS 5 second countdown"
-                  style={[styles.sosCircle, { backgroundColor: colors.emergencyCrimson }]}
+                  style={[styles.sosCircle, { backgroundColor: colors.emergencyFill }]}
                   onPress={() => setSosState(createSosCountdown(5))}
                 >
-                  <Text style={styles.sosTitle}>SOS</Text>
-                  <Text style={styles.sosSub}>Tap for 5s countdown</Text>
+                  <Text style={[styles.sosTitle, { color: colors.onEmergency }]}>SOS</Text>
+                  <Text style={[styles.sosSub, { color: colors.onEmergency }]}>Tap for 5s countdown</Text>
                 </Pressable>
               ) : (
                 <View style={{ alignItems: "center", gap: 10 }}>
@@ -215,6 +225,7 @@ export default function App() {
                     </Text>
                   </View>
                   <Pressable
+                    accessibilityRole="button"
                     style={[styles.actionBtn, { borderColor: colors.hairline, minWidth: 180 }]}
                     onPress={() => setSosState((prev) => cancelSosCountdown(prev))}
                   >
@@ -238,6 +249,7 @@ export default function App() {
                     {rep.area} · By {rep.authorLabel} · {check.distanceMeters}m away
                   </Text>
                   <Pressable
+                    accessibilityRole="button"
                     disabled={!check.allowed}
                     style={[
                       styles.actionBtn,
@@ -297,8 +309,12 @@ export default function App() {
               <Text style={{ color: colors.inkPrimary }}>Hide my name publicly</Text>
               <Switch value={hideIdentity} onValueChange={setHideIdentity} />
             </View>
-            <Pressable style={[styles.actionBtn, { backgroundColor: colors.primaryTeal }]} onPress={handlePublish}>
-              <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Publish report</Text>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.actionBtn, { backgroundColor: colors.primaryTeal }]}
+              onPress={handlePublish}
+            >
+              <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>Publish report</Text>
             </Pressable>
           </View>
         )}
@@ -313,8 +329,12 @@ export default function App() {
               placeholderTextColor={colors.inkSecondary}
               style={[styles.input, { borderColor: colors.hairline, color: colors.inkPrimary }]}
             />
-            <Pressable style={[styles.actionBtn, { backgroundColor: colors.primaryTeal }]} onPress={handleAskAi}>
-              <Text style={{ color: "#FFFFFF", fontWeight: "700" }}>Ask DaakAI</Text>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.actionBtn, { backgroundColor: colors.primaryTeal }]}
+              onPress={handleAskAi}
+            >
+              <Text style={{ color: colors.onPrimary, fontWeight: "700" }}>Ask DaakAI</Text>
             </Pressable>
             {aiReply && <Text style={{ color: colors.inkPrimary }}>{aiReply}</Text>}
           </View>
@@ -322,10 +342,12 @@ export default function App() {
       </ScrollView>
 
       {/* Bottom Material / HIG 4-Tab Bar (min 48dp height) */}
-      <View style={[styles.tabBar, { backgroundColor: colors.surface, borderTopColor: colors.hairline }]}>
+      <View accessibilityRole="tablist" style={[styles.tabBar, { backgroundColor: colors.surface, borderTopColor: colors.hairline }]}>
         {(["home", "map", "reports", "ai"] as TabId[]).map((item) => (
           <Pressable
             key={item}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === item }}
             style={[styles.tabItem, tab === item && { backgroundColor: colors.railMuted }]}
             onPress={() => setTab(item)}
           >
