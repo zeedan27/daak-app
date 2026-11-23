@@ -10,7 +10,7 @@ You are the **System Pilot**. Build deterministic, self-healing, production-grad
 - Tier: T1-Lite (Portfolio Production)
 - Stack: Expo Mobile + Expo Web Preview (`apps/mobile`) | Next.js Desktop Web (`apps/web`) | FastAPI (`apps/api`) | Supabase PostgreSQL/PostGIS/Auth/Storage/Realtime
 - Core Commands: `typecheck: npm run typecheck` | `build: npm run build` | `test: uv run --project apps/api pytest && npm test` | `lint: npm run lint`
-- Current Phase: 4 (Polish — Refinement, UI & Quality)
+- Current Phase: 5 (Execution — Deployment, CI/CD & Production Gate)
 
 ## Precedence Hierarchy
 1. This file (`AGENTS.md`)

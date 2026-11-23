@@ -52,15 +52,20 @@
 - [x] **Slice 3.6:** Citizen Mobile App + Expo Web Preview (`apps/mobile`) — Tactile 5s SOS Ring, Safe Walk Escort Timer, Incident Reporting + 1km Corroboration, Area Safety Score/Map & Bangla/Banglish DaakAI (`<= 5` code files)
 - [x] **Phase 3 Checkpoint — Stop and obtain user confirmation before Phase 4**
 
-## Phase 4: P — Polish (Refinement, UI & Quality) — In Progress
+## Phase 4: P — Polish (Refinement, UI & Quality) — Complete
 - [x] Read Phase 4 skills (`impeccable` + `audit.md`, `polish.md`, `critique.md`, `document.md`, `craft-floor.md`; `web-design-guidelines`; `vercel-react-best-practices`) and run `impeccable context` & `impeccable detect --json apps/web/src`
 - [x] **Slice 4.1 (`apps/web`, 5 code files):** Fix hydration mismatch & 5s SOS countdown freeze bug; fix False-Report Queue triage exclusion; optimize re-renders; enforce WCAG 2.1 AA (skip link, single `<h1>`, keyboard-accessible table rows, `Escape` drawer close, `aria-live` regions, dark-mode contrast tokens, `>= 24px` map pin targets, `:disabled` states); add collapsible `< 1024px` mobile nav rail; add Nearest Thana to SOS Case Inspector Drawer, anonymity indicator to Report Inspector, sentence-case status labels, and queue empty states
 - [x] **Slice 4.2 (`apps/mobile`, 2 code files):** Fix dark-mode WCAG AA contrast tokens (`railCommitted`, `emergencyFill`, `onPrimary`, `onEmergency`) in `MOBILE_PALETTE` and `App.tsx`, plus tab ARIA roles
 - [x] Generate/sync `.impeccable/design.json` (`schemaVersion: 2`) matching built CSS tokens and `ds-` component snippets
 - [x] Live browser audit on `apps/web` (`1440×900` & `390×844`, Light & Dark, zero console/hydration errors, all 5 UI states, full Citizen → Police → Admin E2E flow)
 - [x] Bundle secret hygiene check + full verification suite (`impeccable detect`, `pytest`, `npm test`, `typecheck`, `build`, `lint`, `npm audit`) recorded in `progress.md`
-- [ ] **Phase 4 Checkpoint — Stop and obtain user confirmation before Phase 5**
+- [x] **Phase 4 Checkpoint — Stop and obtain user confirmation before Phase 5**
 
-## Phase 5: E — Execution (Deployment, CI/CD & Production Gate) — Gate 2 *(Placeholder)*
-- **Candidate Skills / Commands:** `scope/references/caching-and-scaling.md`, `scope/references/skills-and-safety.md` (Deploy Rule), `requesting-code-review`, Vercel/Render/Expo EAS Git deploys, `/browser`, `/learn`
-- **High-Level Goal:** Satisfy every Gate 2 Production Readiness item (builds, secret scan, negative RLS/auth tests, rate limiting, health probes, staging smoke tests), deploy committed code via Git/approved CLIs, finalize `architecture/maintenance.md`, and complete handoff.
+## Phase 5: E — Execution (Deployment, CI/CD & Production Gate) — In Progress
+- [x] Read Phase 5 skills (`scope/references/caching-and-scaling.md`, `scope/references/skills-and-safety.md`, `requesting-code-review`) and inspect current probes, headers, CI, and local CLIs
+- [ ] **Slice 5.1 (Resilience, Caching Security & Security Headers — 2 code files):** Update `architecture/caching.md` SOP first; enforce `private` `Cache-Control` on authenticated `/api/v1/safety-score` & `/api/v1/heatmap` and add graceful shutdown readiness (`503` on drain) in `apps/api/app/main.py` + tests in `apps/api/tests/test_api.py`; add HTTP security headers in `apps/web/next.config.mjs`
+- [ ] **Deployment Manifests & Ignore Files (Deploy Rule):** Add `render.yaml` (`apps/api` Blueprint with `--timeout-keep-alive 65` and `/healthz/ready`), `apps/web/vercel.json`, and `apps/web/.vercelignore`
+- [ ] **Maintenance Runbooks & Handoff Docs:** Finalize `architecture/maintenance.md` (deployment runbooks, rollbacks, secret rotation, backup/restore, cost caps/budget alerts, deferred layer revisit triggers) and create root `README.md`
+- [ ] **Gate 2 Full Verification & Local Staging Smoke Test:** Run `gitleaks` secret scan, full test/build/typecheck/lint/audit suite, live FastAPI (`:8000`) probe/auth/rate-limit/structured-log checks, and live Next.js (`:3000`) staging smoke test via `browser` subagent
+- [ ] **Final Pre-Gate 2 Code Review (`requesting-code-review`):** Dispatch fresh-context read-only reviewer subagent over Phase 3–5 changes (`9435cf9..HEAD`), resolve any Critical/Important findings, and re-verify
+- [ ] **Gate 2 Sign-Off & Handoff:** Record complete Gate 2 evidence table in `progress.md`, commit cleanly on `main`, and stop for final user sign-off / GitHub remote push approval
