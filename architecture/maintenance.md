@@ -16,7 +16,7 @@
 
 ### B.1 FastAPI Domain API (`apps/api` → Northflank Sandbox, Primary Always-On)
 1. Create a Northflank **Developer Sandbox** project in `asia-southeast` (nearest Asia region to Supabase `ap-south-1`).
-2. Create a Git-integrated **Combined Service** connected to the GitHub repository `daak-v2` (branch `main`):
+2. Create a Git-integrated **Combined Service** connected to the GitHub repository `zeedan27/daak-app` (`https://github.com/zeedan27/daak-app`, branch `main`):
    - **Build Type:** `Dockerfile`
    - **Dockerfile Path:** `/apps/api/Dockerfile` (paired with `apps/api/.dockerignore`)
    - **Build Context:** `/apps/api`
@@ -33,12 +33,12 @@
    - Set `DEMO_MODE=false` when transitioning from portfolio demo to public production.
 
 ### B.2 FastAPI Domain API (`apps/api` → Render Free Blueprint `render.yaml`, Zero-Card Fallback)
-1. If Northflank requires card verification for your account, connect the GitHub repository in Render and select **Blueprint** (`render.yaml` at repo root).
+1. If Northflank requires card verification for your account, connect `zeedan27/daak-app` (`https://github.com/zeedan27/daak-app`) in Render and select **Blueprint** (`render.yaml` at repo root).
 2. Configure the same secret environment variables in Render Dashboard (`sync: false` in `render.yaml`), noting Render Free spins down after 15 minutes idle.
 3. Verify `/healthz/live` and `/healthz/ready` probes (`uvicorn` runs with `--timeout-keep-alive 65` in both Dockerfile and `render.yaml`).
 
 ### C. Police & Admin Desktop Web + Citizen Web Preview (`apps/web` → Vercel Hobby)
-1. Import the GitHub repository in Vercel with **Root Directory** set to `apps/web` (`apps/web/vercel.json` + `apps/web/.vercelignore`).
+1. Import `zeedan27/daak-app` (`https://github.com/zeedan27/daak-app`) in Vercel with **Root Directory** set to `apps/web` (`apps/web/vercel.json` + `apps/web/.vercelignore`).
 2. Configure public environment variables in Vercel (strictly public allowlist — never put `SUPABASE_SERVICE_ROLE_KEY` or `AI_API_KEY` in `NEXT_PUBLIC_*`):
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`

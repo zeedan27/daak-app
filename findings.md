@@ -84,4 +84,4 @@ Kept strictly read-only as a domain reference:
   - `context7` MCP resolved `@supabase/supabase-js` (`/supabase/supabase-js`).
   - `tools/verify_connections.py` passed in live, `--ci`, and `--quick` modes (hygiene, YAML `trigger: glob` frontmatter, structured JSON log secret redaction, Bangla/Banglish DaakAI deterministic fallback, Git + `.github/workflows/ci.yml`).
 - **Phase 3 Advisor Note:** `get_advisors(security)` noted `postgis` and `pg_trgm` in `public` (`spatial_ref_sys` RLS / `extension_in_public`). Address in Phase 3's initial SQL migration (`extensions` schema or explicit `REVOKE` on `spatial_ref_sys`).
-- **Remote Git Origin:** Deferred cleanly to user's GitHub repo link when ready to push (`ci.yml` already committed).
+- **Remote Git Origin & CI:** Connected `origin` to public GitHub repo `https://github.com/zeedan27/daak-app` (`main`), and GitHub Actions CI (`runs/45233041942`) passed all 3 jobs (`Secret Scan (gitleaks)`, `Hygiene, Schema & FastAPI Pytest`, `Typecheck, Unit Tests & Next.js Build`).

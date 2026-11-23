@@ -194,3 +194,10 @@
   - `npm run typecheck` → exit `0`
   - `npm run build` → `Next.js 16.4.6 (Turbopack)` compiled & prerendered `3/3` static routes cleanly
   - `npm run lint` → 4/4 `PASS` (`verify_connections.py --quick`) + `PASS` (`verify_schema_rls.py`)
+
+### Remote GitHub Push & CI Verification
+- **Repository:** `https://github.com/zeedan27/daak-app` (public, default branch `main`, remote `origin` tracking `main...origin/main`).
+- **GitHub Actions CI (`https://github.com/zeedan27/daak-app/actions/runs/45233041942`, commit `7e83e0b`):** **PASS** across all 3 jobs:
+  - `Secret Scan (gitleaks)` — `success`
+  - `Hygiene, Schema & FastAPI Pytest` — `success`
+  - `Typecheck, Unit Tests & Next.js Build` — `success`
