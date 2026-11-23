@@ -18,3 +18,4 @@
   - `.gitignore:12:node_modules/	node_modules/foo`
 - `git check-ignore -v .env.example` matched negation `.gitignore:4:!.env.example	.env.example`, and `git status` confirms `.env.example` is tracked/unignored while `.env*` remain ignored.
 - Root directory tree verified: `.git`, `.gitignore`, `.env.example`, `AGENTS.md`, `task_plan.md`, `findings.md`, `progress.md`, `architecture/` (`decisions.md`, `maintenance.md`, `schemas.md`). Zero application code in `src/`, `apps/`, or `tools/` (Hard Halt respected).
+- **Universal Core Skills Installed (2026-11-23):** Ran `npx skills add obra/superpowers --skill test-driven-development requesting-code-review -g -y` with user approval. Verified via `npx skills ls -g` and `Test-Path` (`True` for all 4 paths under `~\.gemini\config\skills\` and `~\.agents\skills\`). Recorded in `architecture/decisions.md` (`ADR-001`).

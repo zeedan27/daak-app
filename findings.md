@@ -16,14 +16,12 @@ Kept strictly read-only as a domain reference:
 
 ## 4. Tooling & Skill Verification Inventory (Phase 0)
 - **Installed Core / UI / Stack Skills:**
-  - `scope`, `verification-before-completion`, `systematic-debugging`
+  - `scope`, `verification-before-completion`, `systematic-debugging`, `test-driven-development`, `requesting-code-review`
   - `design-taste-frontend`, `frontend-design`, `impeccable`, `web-design-guidelines`, `vercel-react-best-practices`
   - `supabase`, `supabase-postgres-best-practices`, `workers-best-practices`, `wrangler`
 - **Installed MCP Servers:**
   - `context7`, `supabase_mcp`, `cloudflare_cloudflare`
-- **Missing Universal Core Skills (awaiting explicit user approval before install):**
-  - `test-driven-development` → `npx skills add obra/superpowers --skill test-driven-development -g`
-  - `requesting-code-review` → `npx skills add obra/superpowers --skill requesting-code-review -g`
+- **Missing Universal Core Skills:** None (all Universal Core Skills installed).
 - **Optional Conditional Skill (for Phase 3 if 3+ parallel slices):**
   - `subagent-driven-development` → `npx skills add obra/superpowers --skill subagent-driven-development -g`
 
