@@ -4,6 +4,22 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import CitizenPreviewDeck from "@/components/CitizenPreviewDeck";
 import SpatialMapDeck from "@/components/SpatialMapDeck";
 import {
+  apiAskDaakAi,
+  apiCompleteSafeWalk,
+  apiCorroborateReport,
+  apiCreateCriminal,
+  apiCreateHandover,
+  apiCreateReport,
+  apiDemoLogin,
+  apiDispatchSos,
+  apiEscalateSafeWalk,
+  apiFetchDataset,
+  apiModerateReport,
+  apiTriggerSos,
+  apiUpdateCriminalStatus,
+  isLiveApiConfigured,
+} from "@/lib/apiClient";
+import {
   computeAreaSafetyScores,
   createInitialDemoDataset,
   DEMO_BASE_TIMESTAMP_MS,
@@ -12,6 +28,7 @@ import {
   formatSlaChronometer,
   formatStatusLabel,
   maskReportForRole,
+  resolveAreaCoordinates,
   type CrimeReport,
   type CriminalRecord,
   type DaakDataset,
@@ -42,6 +59,7 @@ export default function DaakCommandPortal() {
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   const [nowMs, setNowMs] = useState<number>(DEMO_BASE_TIMESTAMP_MS);
   const nowMsRef = useRef<number>(DEMO_BASE_TIMESTAMP_MS);
+  const roleTokensRef = useRef<Partial<Record<UserRole, string>>>({});
   const [selectedSosId, setSelectedSosId] = useState<string | null>(
     "66666666-6666-4666-8666-666666666601"
   );
@@ -53,6 +71,39 @@ export default function DaakCommandPortal() {
   const [newCrimName, setNewCrimName] = useState<string>("");
   const [newCrimArea, setNewCrimArea] = useState<string>("Dhanmondi");
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
+
+  const ensureToken = useCallback(async (targetRole: UserRole): Promise<string | null> => {
+    if (!isLiveApiConfigured()) return null;
+    const cached = roleTokensRef.current[targetRole];
+    if (cached) return cached;
+    const { access_token } = await apiDemoLogin(targetRole);
+    roleTokensRef.current[targetRole] = access_token;
+    return access_token;
+  }, []);
+
+  const syncFromLiveApi = useCallback(
+    async (targetRole: UserRole) => {
+      if (!isLiveApiConfigured()) return;
+      try {
+        const token = await ensureToken(targetRole);
+        if (!token) return;
+        const partial = await apiFetchDataset(token, targetRole);
+        setNowMs(Date.now());
+        setDataset((prev) => ({
+          ...prev,
+          ...partial,
+        }));
+      } catch {
+        setUiState("partial_error");
+        setStatusNotice("Live API unavailable — using local Dhaka demo snapshot");
+      }
+    },
+    [ensureToken]
+  );
+
+  useEffect(() => {
+    void syncFromLiveApi("police");
+  }, [syncFromLiveApi]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -96,12 +147,14 @@ export default function DaakCommandPortal() {
       setSection("sos");
     }
     setStatusNotice(`Switched demo session to ${dataset.profiles[nextRole].full_name} (${nextRole})`);
+    void syncFromLiveApi(nextRole);
   };
 
   const handleDispatchSos = useCallback(
     (sosId: string, nextStatus: DistressSignal["status"], unitName?: string) => {
       const ts = nowMsRef.current;
       const nowIso = new Date(ts).toISOString();
+      const shouldAssignUnit = nextStatus === "claimed" || nextStatus === "responding";
       setDataset((prev) => ({
         ...prev,
         distressSignals: prev.distressSignals.map((sig) =>
@@ -111,7 +164,8 @@ export default function DaakCommandPortal() {
                 ...sig,
                 status: nextStatus,
                 claimed_by: sig.claimed_by ?? currentProfile.id,
-                assigned_unit: unitName ?? sig.assigned_unit ?? unitDraft,
+                assigned_unit:
+                  unitName ?? sig.assigned_unit ?? (shouldAssignUnit ? unitDraft : null),
                 dispatch_timeline: [
                   ...sig.dispatch_timeline,
                   {
@@ -135,8 +189,30 @@ export default function DaakCommandPortal() {
         ],
       }));
       setStatusNotice(`Alert updated to ${formatStatusLabel(nextStatus)}`);
+      if (isLiveApiConfigured() && (nextStatus === "claimed" || nextStatus === "responding" || nextStatus === "resolved" || nextStatus === "false_alarm")) {
+        void ensureToken(role)
+          .then((token) =>
+            token
+              ? apiDispatchSos(token, sosId, {
+                  status: nextStatus,
+                  assigned_unit: unitName ?? (shouldAssignUnit ? unitDraft : undefined),
+                })
+              : null
+          )
+          .then((updated) => {
+            if (updated) {
+              setDataset((prev) => ({
+                ...prev,
+                distressSignals: prev.distressSignals.map((s) => (s.id === updated.id ? updated : s)),
+              }));
+            }
+          })
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
     },
-    [currentProfile.full_name, currentProfile.id, role, unitDraft]
+    [currentProfile.full_name, currentProfile.id, ensureToken, role, unitDraft]
   );
 
   const handleModerateReport = useCallback(
@@ -147,9 +223,18 @@ export default function DaakCommandPortal() {
       const ts = nowMsRef.current;
       const nowIso = new Date(ts).toISOString();
       const targetState = updates.status ?? updates.flag_status ?? "updated";
+      const nextStatus = updates.flag_status === "confirmed_false" ? "rejected" : updates.status;
       setDataset((prev) => ({
         ...prev,
-        reports: prev.reports.map((rep) => (rep.id === reportId ? { ...rep, ...updates } : rep)),
+        reports: prev.reports.map((rep) =>
+          rep.id === reportId
+            ? {
+                ...rep,
+                ...updates,
+                ...(nextStatus ? { status: nextStatus } : {}),
+              }
+            : rep
+        ),
         activityLogs: [
           {
             id: `log-${ts}-${Math.random().toString(36).slice(2, 6)}`,
@@ -163,17 +248,32 @@ export default function DaakCommandPortal() {
         ],
       }));
       setStatusNotice("Report moderation saved");
+      if (isLiveApiConfigured()) {
+        void ensureToken(role)
+          .then((token) => (token ? apiModerateReport(token, reportId, updates) : null))
+          .then((updated) => {
+            if (updated) {
+              setDataset((prev) => ({
+                ...prev,
+                reports: prev.reports.map((r) => (r.id === updated.id ? updated : r)),
+              }));
+            }
+          })
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
     },
-    [role]
+    [ensureToken, role]
   );
 
   const handleTriggerSosFromCitizen = useCallback(
     (lat: number, lng: number, area: string, note: string) => {
       const ts = nowMsRef.current;
       const nowIso = new Date(ts).toISOString();
-      const newId = `sos-${ts}`;
+      const tempId = `sos-${ts}`;
       const created: DistressSignal = {
-        id: newId,
+        id: tempId,
         user_id: dataset.profiles.citizen.id,
         citizen_name: dataset.profiles.citizen.full_name,
         trigger_source: "panic_button",
@@ -204,10 +304,29 @@ export default function DaakCommandPortal() {
           ...prev.activityLogs,
         ],
       }));
-      setSelectedSosId(newId);
+      setSelectedSosId(tempId);
       setSelectedReportId(null);
+
+      if (isLiveApiConfigured()) {
+        void ensureToken("citizen")
+          .then((token) =>
+            token ? apiTriggerSos(token, { lat, lng, area_name: area, note, battery_level: 72 }) : null
+          )
+          .then((saved) => {
+            if (saved) {
+              setDataset((prev) => ({
+                ...prev,
+                distressSignals: prev.distressSignals.map((s) => (s.id === tempId ? saved : s)),
+              }));
+              setSelectedSosId(saved.id);
+            }
+          })
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
     },
-    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id]
+    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id, ensureToken]
   );
 
   const handleCitizenSubmitReport = useCallback(
@@ -221,9 +340,11 @@ export default function DaakCommandPortal() {
     }) => {
       const ts = nowMsRef.current;
       const nowIso = new Date(ts).toISOString();
+      const coords = resolveAreaCoordinates(input.area_name);
       const suspicious = /http|bit\.ly|promo|test test/i.test(`${input.title} ${input.description}`);
+      const tempId = `rep-${ts}`;
       const newRep: CrimeReport = {
-        id: `rep-${ts}`,
+        id: tempId,
         reporter_id: dataset.profiles.citizen.id,
         reporter_display_name: dataset.profiles.citizen.full_name,
         is_anonymous_public: input.is_anonymous_public,
@@ -232,8 +353,8 @@ export default function DaakCommandPortal() {
         title: input.title,
         description: input.description,
         area_name: input.area_name,
-        lat: 23.7465,
-        lng: 90.376,
+        lat: coords.lat,
+        lng: coords.lng,
         occurred_at: nowIso,
         created_at: nowIso,
         status: "pending",
@@ -246,19 +367,53 @@ export default function DaakCommandPortal() {
         ...prev,
         reports: [newRep, ...prev.reports],
       }));
+
+      if (isLiveApiConfigured()) {
+        void ensureToken("citizen")
+          .then((token) =>
+            token
+              ? apiCreateReport(token, {
+                  ...input,
+                  lat: coords.lat,
+                  lng: coords.lng,
+                })
+              : null
+          )
+          .then((saved) => {
+            if (saved) {
+              setDataset((prev) => ({
+                ...prev,
+                reports: prev.reports.map((r) => (r.id === tempId ? saved : r)),
+              }));
+            }
+          })
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
     },
-    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id]
+    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id, ensureToken]
   );
 
-  const handleCorroborate = useCallback((reportId: string) => {
-    setDataset((prev) => ({
-      ...prev,
-      reports: prev.reports.map((r) =>
-        r.id === reportId ? { ...r, corroboration_count: r.corroboration_count + 1 } : r
-      ),
-    }));
-    setStatusNotice("Corroboration recorded (+1 witness within 1 km)");
-  }, []);
+  const handleCorroborate = useCallback(
+    (reportId: string) => {
+      setDataset((prev) => ({
+        ...prev,
+        reports: prev.reports.map((r) =>
+          r.id === reportId ? { ...r, corroboration_count: r.corroboration_count + 1 } : r
+        ),
+      }));
+      setStatusNotice("Corroboration recorded (+1 witness within 1 km)");
+      if (isLiveApiConfigured()) {
+        void ensureToken("citizen")
+          .then((token) => (token ? apiCorroborateReport(token, reportId, 23.7465, 90.376) : null))
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
+    },
+    [ensureToken]
+  );
 
   const handleEscalateWalk = useCallback(
     (walkId: string) => {
@@ -266,10 +421,10 @@ export default function DaakCommandPortal() {
       if (!walk) return;
       const ts = nowMsRef.current;
       const nowIso = new Date(ts).toISOString();
-      const newId = `sos-${ts}`;
+      const tempId = `sos-${ts}`;
       const note = `Safe Walk timeout to ${walk.destination_name}`;
       const created: DistressSignal = {
-        id: newId,
+        id: tempId,
         user_id: dataset.profiles.citizen.id,
         citizen_name: dataset.profiles.citizen.full_name,
         trigger_source: "safe_walk_timeout",
@@ -289,7 +444,7 @@ export default function DaakCommandPortal() {
         ...prev,
         distressSignals: [created, ...prev.distressSignals],
         safeWalks: prev.safeWalks.map((w) =>
-          w.id === walkId ? { ...w, status: "escalated", escalated_sos_id: newId } : w
+          w.id === walkId ? { ...w, status: "escalated", escalated_sos_id: tempId } : w
         ),
         activityLogs: [
           {
@@ -303,20 +458,65 @@ export default function DaakCommandPortal() {
           ...prev.activityLogs,
         ],
       }));
-      setSelectedSosId(newId);
+      setSelectedSosId(tempId);
       setSelectedReportId(null);
       setStatusNotice("Safe Walk timeout escalated to Police Monitor");
+
+      if (isLiveApiConfigured()) {
+        void ensureToken("citizen")
+          .then((token) => (token ? apiEscalateSafeWalk(token, walkId) : null))
+          .then((res) => {
+            if (res) {
+              setDataset((prev) => ({
+                ...prev,
+                distressSignals: prev.distressSignals.map((s) =>
+                  s.id === tempId ? res.distress_signal : s
+                ),
+                safeWalks: prev.safeWalks.map((w) => (w.id === walkId ? res.safe_walk : w)),
+              }));
+              setSelectedSosId(res.distress_signal.id);
+            }
+          })
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
     },
-    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id, dataset.safeWalks]
+    [dataset.profiles.citizen.full_name, dataset.profiles.citizen.id, dataset.safeWalks, ensureToken]
   );
 
-  const handleCompleteWalk = useCallback((walkId: string) => {
-    setDataset((prev) => ({
-      ...prev,
-      safeWalks: prev.safeWalks.map((w) => (w.id === walkId ? { ...w, status: "completed" } : w)),
-    }));
-    setStatusNotice("Safe Walk completed safely");
-  }, []);
+  const handleCompleteWalk = useCallback(
+    (walkId: string) => {
+      setDataset((prev) => ({
+        ...prev,
+        safeWalks: prev.safeWalks.map((w) => (w.id === walkId ? { ...w, status: "completed" } : w)),
+      }));
+      setStatusNotice("Safe Walk completed safely");
+      if (isLiveApiConfigured()) {
+        void ensureToken("citizen")
+          .then((token) => (token ? apiCompleteSafeWalk(token, walkId) : null))
+          .catch(() => {
+            setUiState("partial_error");
+          });
+      }
+    },
+    [ensureToken]
+  );
+
+  const handleAskAi = useCallback(
+    async (prompt: string, lat: number, lng: number): Promise<string | null> => {
+      if (!isLiveApiConfigured()) return null;
+      try {
+        const token = await ensureToken("citizen");
+        if (!token) return null;
+        const res = await apiAskDaakAi(token, prompt, lat, lng);
+        return res.reply;
+      } catch {
+        return null;
+      }
+    },
+    [ensureToken]
+  );
 
   const handleSelectReport = useCallback((id: string) => {
     setSelectedReportId(id);
@@ -348,15 +548,17 @@ export default function DaakCommandPortal() {
   const handleCreateHandover = (e: React.FormEvent) => {
     e.preventDefault();
     if (!handoverSummary.trim()) return;
+    const summaryText = handoverSummary.trim();
     const ts = nowMsRef.current;
+    const tempId = `ho-${ts}`;
     setDataset((prev) => ({
       ...prev,
       shiftHandovers: [
         {
-          id: `ho-${ts}`,
+          id: tempId,
           officer_name: currentProfile.full_name,
           shift_label: handoverShift,
-          summary: handoverSummary.trim(),
+          summary: summaryText,
           priority_areas: ["Dhanmondi", "Mirpur-10"],
           created_at: new Date(ts).toISOString(),
         },
@@ -365,31 +567,103 @@ export default function DaakCommandPortal() {
     }));
     setHandoverSummary("");
     setStatusNotice("Shift handover logged");
+    if (isLiveApiConfigured()) {
+      void ensureToken(role)
+        .then((token) =>
+          token
+            ? apiCreateHandover(token, {
+                shift_label: handoverShift,
+                summary: summaryText,
+                priority_areas: ["Dhanmondi", "Mirpur-10"],
+              })
+            : null
+        )
+        .then((saved) => {
+          if (saved) {
+            setDataset((prev) => ({
+              ...prev,
+              shiftHandovers: prev.shiftHandovers.map((h) => (h.id === tempId ? saved : h)),
+            }));
+          }
+        })
+        .catch(() => setUiState("partial_error"));
+    }
   };
 
   const handleAddCriminal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCrimName.trim()) return;
+    const fullName = newCrimName.trim();
+    const areaVal = newCrimArea;
     const ts = nowMsRef.current;
+    const tempId = `crim-${ts}`;
     const item: CriminalRecord = {
-      id: `crim-${ts}`,
-      full_name: newCrimName.trim(),
+      id: tempId,
+      full_name: fullName,
       aliases: [],
       crime_categories: ["snatching"],
       risk_level: "high",
-      last_known_area: newCrimArea,
+      last_known_area: areaVal,
       status: "wanted",
       details: "Added via Admin Watchlist console (synthetic demo).",
     };
     setDataset((prev) => ({ ...prev, criminals: [item, ...prev.criminals] }));
     setNewCrimName("");
     setStatusNotice("Watchlist entry created");
+    if (isLiveApiConfigured()) {
+      void ensureToken(role)
+        .then((token) =>
+          token
+            ? apiCreateCriminal(token, {
+                full_name: fullName,
+                last_known_area: areaVal,
+                risk_level: "high",
+              })
+            : null
+        )
+        .then((saved) => {
+          if (saved) {
+            setDataset((prev) => ({
+              ...prev,
+              criminals: prev.criminals.map((c) => (c.id === tempId ? saved : c)),
+            }));
+          }
+        })
+        .catch(() => setUiState("partial_error"));
+    }
+  };
+
+  const handleToggleCriminalCustody = (crim: CriminalRecord) => {
+    const nextStatus: CriminalRecord["status"] =
+      crim.status === "wanted" ? "in_custody" : "wanted";
+    setDataset((prev) => ({
+      ...prev,
+      criminals: prev.criminals.map((c) =>
+        c.id === crim.id ? { ...c, status: nextStatus } : c
+      ),
+    }));
+    setStatusNotice(`Watchlist status updated to ${formatStatusLabel(nextStatus)}`);
+    if (isLiveApiConfigured()) {
+      void ensureToken(role)
+        .then((token) => (token ? apiUpdateCriminalStatus(token, crim.id, nextStatus) : null))
+        .catch(() => setUiState("partial_error"));
+    }
   };
 
   const activeSosList = useMemo(
     () => dataset.distressSignals.filter((s) => ["active", "claimed", "responding"].includes(s.status)),
     [dataset.distressSignals]
   );
+  const visibleReports = useMemo(() => {
+    if (role !== "citizen") return dataset.reports;
+    return dataset.reports.filter(
+      (r) =>
+        r.status !== "rejected" &&
+        r.flag_status !== "confirmed_false" &&
+        r.flag_status !== "flagged" &&
+        (r.status !== "pending" || r.reporter_id === currentProfile.id)
+    );
+  }, [currentProfile.id, dataset.reports, role]);
   const falseQueue = useMemo(() => filterAndSortFalseReports(dataset.reports), [dataset.reports]);
   const safetyScores = useMemo(() => computeAreaSafetyScores(dataset.reports), [dataset.reports]);
   const nearestSelectedThana = useMemo(
@@ -404,7 +678,9 @@ export default function DaakCommandPortal() {
     [currentProfile.id, role, selectedReport]
   );
   const showDrawer =
-    uiState === "live" && (section === "sos" || section === "reports") && Boolean(selectedSos || selectedReport);
+    (uiState === "live" || uiState === "partial_error") &&
+    (section === "sos" || section === "reports") &&
+    Boolean(selectedSos || selectedReport);
 
   return (
     <div className="daak-shell">
@@ -796,7 +1072,7 @@ export default function DaakCommandPortal() {
                         </tr>
                       </thead>
                       <tbody>
-                        {dataset.reports.map((raw) => {
+                        {visibleReports.map((raw) => {
                           const rep = maskReportForRole(raw, role, currentProfile.id);
                           return (
                             <tr
@@ -1023,16 +1299,7 @@ export default function DaakCommandPortal() {
                                   type="button"
                                   className="btn"
                                   disabled={role !== "admin"}
-                                  onClick={() =>
-                                    setDataset((prev) => ({
-                                      ...prev,
-                                      criminals: prev.criminals.map((c) =>
-                                        c.id === crim.id
-                                          ? { ...c, status: c.status === "wanted" ? "in_custody" : "wanted" }
-                                          : c
-                                      ),
-                                    }))
-                                  }
+                                  onClick={() => handleToggleCriminalCustody(crim)}
                                 >
                                   Toggle custody
                                 </button>
@@ -1102,6 +1369,7 @@ export default function DaakCommandPortal() {
                     onCorroborate={handleCorroborate}
                     onEscalateWalk={handleEscalateWalk}
                     onCompleteWalk={handleCompleteWalk}
+                    onAskAi={handleAskAi}
                   />
                 )}
               </>

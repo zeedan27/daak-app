@@ -32,6 +32,7 @@ interface CitizenPreviewDeckProps {
   onCorroborate: (reportId: string) => void;
   onEscalateWalk: (walkId: string) => void;
   onCompleteWalk: (walkId: string) => void;
+  onAskAi?: (prompt: string, lat: number, lng: number) => Promise<string | null>;
 }
 
 type MobileTab = "home" | "map" | "reports" | "ai";
@@ -47,10 +48,12 @@ function CitizenPreviewDeck({
   onCorroborate,
   onEscalateWalk,
   onCompleteWalk,
+  onAskAi,
 }: CitizenPreviewDeckProps) {
   const [tab, setTab] = useState<MobileTab>("home");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [sosSentBanner, setSosSentBanner] = useState<string | null>(null);
+  const [corroboratedIds, setCorroboratedIds] = useState<string[]>([]);
 
   // Report form state
   const [category, setCategory] = useState<CrimeReport["category"]>("snatching");
@@ -110,14 +113,35 @@ function CitizenPreviewDeck({
     setReportMsg("Report submitted to triage & Police queue.");
   };
 
-  const handleAskAi = (e: React.FormEvent) => {
+  const handleAskAi = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!aiPrompt.trim()) return;
+    if (onAskAi) {
+      const liveReply = await onAskAi(aiPrompt, userLat, userLng);
+      if (liveReply) {
+        setAiResponse(liveReply);
+        return;
+      }
+    }
     const lowered = aiPrompt.toLowerCase();
     const matchedStation = findNearestStation(stations, userLat, userLng, lowered);
+    const stationAliases = matchedStation
+      ? [
+          matchedStation.station.name_en.toLowerCase(),
+          ...matchedStation.station.aliases.map((a) => a.toLowerCase()),
+        ]
+      : [];
+    const matchedAreaToken =
+      stationAliases.find((alias) => lowered.includes(alias)) ??
+      matchedStation?.station.name_en.toLowerCase().split(" ")[0] ??
+      "dhanmondi";
     const localHits = reports.filter(
       (r) =>
         r.status !== "rejected" &&
-        (lowered.includes(r.area_name.toLowerCase().split("-")[0]) || r.area_name === "Dhanmondi")
+        r.flag_status !== "flagged" &&
+        r.flag_status !== "confirmed_false" &&
+        (lowered.includes(r.area_name.toLowerCase().split("-")[0]) ||
+          r.area_name.toLowerCase().includes(matchedAreaToken))
     );
     const stationName = matchedStation?.station.name_en ?? "Dhanmondi Model Police Station";
     const stationPhone = matchedStation?.station.phone ?? "999";
@@ -322,6 +346,8 @@ function CitizenPreviewDeck({
                   {publicReports.slice(0, 4).map((rep) => {
                     const dist = haversineMeters(userLat, userLng, rep.lat, rep.lng);
                     const within1Km = dist <= 1000;
+                    const alreadyCorroborated = corroboratedIds.includes(rep.id);
+                    const isOwn = rep.reporter_id === citizenProfile.id;
                     return (
                       <div
                         key={rep.id}
@@ -347,10 +373,15 @@ function CitizenPreviewDeck({
                             type="button"
                             className="btn"
                             style={{ minHeight: "44px", fontSize: "0.75rem" }}
-                            disabled={!within1Km || rep.reporter_id === citizenProfile.id}
-                            onClick={() => onCorroborate(rep.id)}
+                            disabled={!within1Km || isOwn || alreadyCorroborated}
+                            onClick={() => {
+                              setCorroboratedIds((prev) => (prev.includes(rep.id) ? prev : [...prev, rep.id]));
+                              onCorroborate(rep.id);
+                            }}
                           >
-                            {within1Km
+                            {alreadyCorroborated
+                              ? `Corroborated (${rep.corroboration_count})`
+                              : within1Km
                               ? `I saw this too (${rep.corroboration_count})`
                               : `Outside 1 km (${rep.corroboration_count})`}
                           </button>

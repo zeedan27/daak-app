@@ -9,6 +9,7 @@ import {
   formatSlaChronometer,
   formatStatusLabel,
   maskReportForRole,
+  resolveAreaCoordinates,
 } from "../src/lib/opsLogic.ts";
 
 test("formatSlaChronometer returns MM:SS and normal/warning/breach tiers", () => {
@@ -112,4 +113,14 @@ test("formatStatusLabel maps snake_case codes to sentence-case labels", () => {
   assert.equal(formatStatusLabel("traffic_hazard"), "Traffic hazard");
   assert.equal(formatStatusLabel("suspicious_activity"), "Suspicious activity");
   assert.equal(formatStatusLabel("custom_field_state"), "Custom field state");
+});
+
+test("resolveAreaCoordinates maps Dhaka neighborhoods to distinct coordinates", () => {
+  const dhanmondi = resolveAreaCoordinates("Dhanmondi");
+  const mirpur = resolveAreaCoordinates("Mirpur-10");
+  const uttara = resolveAreaCoordinates("Uttara");
+  const gulshan = resolveAreaCoordinates("Gulshan");
+  assert.notEqual(dhanmondi.lat, mirpur.lat);
+  assert.notEqual(mirpur.lat, uttara.lat);
+  assert.notEqual(uttara.lng, gulshan.lng);
 });

@@ -240,6 +240,25 @@ export function computeAreaSafetyScores(reports: CrimeReport[]): AreaSafetyScore
 
 export const DEMO_BASE_TIMESTAMP_MS = Date.UTC(2026, 10, 23, 12, 0, 0);
 
+export const AREA_COORDINATES: Record<string, { lat: number; lng: number }> = {
+  dhanmondi: { lat: 23.7465, lng: 90.376 },
+  "mirpur-10": { lat: 23.8069, lng: 90.3688 },
+  mirpur: { lat: 23.8069, lng: 90.3688 },
+  shahbagh: { lat: 23.7385, lng: 90.3954 },
+  mohammadpur: { lat: 23.7654, lng: 90.3587 },
+  uttara: { lat: 23.8759, lng: 90.4005 },
+  gulshan: { lat: 23.7925, lng: 90.4152 },
+  motijheel: { lat: 23.733, lng: 90.4173 },
+  chattogram: { lat: 22.3384, lng: 91.8339 },
+};
+
+export function resolveAreaCoordinates(areaName: string): { lat: number; lng: number } {
+  const key = areaName.trim().toLowerCase();
+  if (AREA_COORDINATES[key]) return AREA_COORDINATES[key];
+  const matched = Object.entries(AREA_COORDINATES).find(([k]) => key.includes(k));
+  return matched ? matched[1] : AREA_COORDINATES.dhanmondi;
+}
+
 const STATUS_LABELS: Record<string, string> = {
   active: "Active",
   claimed: "Claimed",
