@@ -60,6 +60,7 @@ export default function DaakCommandPortal() {
   const [nowMs, setNowMs] = useState<number>(DEMO_BASE_TIMESTAMP_MS);
   const nowMsRef = useRef<number>(DEMO_BASE_TIMESTAMP_MS);
   const roleTokensRef = useRef<Partial<Record<UserRole, string>>>({});
+  const syncSeqRef = useRef<number>(0);
   const [selectedSosId, setSelectedSosId] = useState<string | null>(
     "66666666-6666-4666-8666-666666666601"
   );
@@ -84,16 +85,20 @@ export default function DaakCommandPortal() {
   const syncFromLiveApi = useCallback(
     async (targetRole: UserRole) => {
       if (!isLiveApiConfigured()) return;
+      const seq = ++syncSeqRef.current;
       try {
         const token = await ensureToken(targetRole);
-        if (!token) return;
+        if (!token || seq !== syncSeqRef.current) return;
         const partial = await apiFetchDataset(token, targetRole);
+        if (seq !== syncSeqRef.current) return;
         setNowMs(Date.now());
         setDataset((prev) => ({
           ...prev,
           ...partial,
         }));
+        setUiState((prev) => (prev === "partial_error" ? "live" : prev));
       } catch {
+        if (seq !== syncSeqRef.current) return;
         setUiState("partial_error");
         setStatusNotice("Live API unavailable — using local Dhaka demo snapshot");
       }
@@ -750,7 +755,7 @@ export default function DaakCommandPortal() {
             onClick={() => selectNavSection("reports")}
           >
             <span>Crime Reports</span>
-            <span className="mono">{dataset.reports.length}</span>
+            <span className="mono">{visibleReports.length}</span>
           </button>
           <button
             type="button"
@@ -952,7 +957,14 @@ export default function DaakCommandPortal() {
                 }}
               >
                 <span>Live safety score recomputation delayed — showing cached Dhaka dispatch snapshot.</span>
-                <button type="button" className="btn" onClick={() => setUiState("live")}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setUiState("live");
+                    void syncFromLiveApi(role);
+                  }}
+                >
                   Retry sync
                 </button>
               </div>

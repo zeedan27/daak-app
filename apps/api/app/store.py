@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -641,9 +642,24 @@ class SupabaseDaakStore(InMemoryDaakStore):
         if isinstance(raw, dict) and isinstance(raw.get("coordinates"), (list, tuple)) and len(raw["coordinates"]) >= 2:
             return float(raw["coordinates"][1]), float(raw["coordinates"][0])
         if isinstance(raw, str):
-            m = re.search(r"POINT\s*\(\s*([-0-9.]+)\s+([-0-9.]+)\s*\)", raw, re.IGNORECASE)
+            text = raw.strip()
+            m = re.search(r"POINT\s*\(\s*([-0-9.]+)\s+([-0-9.]+)\s*\)", text, re.IGNORECASE)
             if m:
                 return float(m.group(2)), float(m.group(1))
+            # Decode PostGIS EWKB hex strings returned by PostgREST geography(Point, 4326)
+            if len(text) >= 42 and re.fullmatch(r"[0-9a-fA-F]+", text):
+                try:
+                    buf = bytes.fromhex(text)
+                    endian = "<" if buf[0] == 1 else ">"
+                    geom_type = struct.unpack(f"{endian}I", buf[1:5])[0]
+                    if (geom_type & 0xFF) == 1:
+                        has_srid = bool(geom_type & 0x20000000)
+                        offset = 9 if has_srid else 5
+                        if len(buf) >= offset + 16:
+                            lng, lat = struct.unpack(f"{endian}dd", buf[offset : offset + 16])
+                            return float(lat), float(lng)
+                except (ValueError, struct.error):
+                    return None
         return None
 
     @classmethod
@@ -663,22 +679,22 @@ class SupabaseDaakStore(InMemoryDaakStore):
     async def hydrate_from_supabase(self) -> None:
         """Load persisted records from Supabase PostgREST on cold start."""
         table_targets = (
-            ("police_stations", "list", "police_stations"),
-            ("profiles", "profiles", "profiles"),
-            ("reports", "list", "reports"),
-            ("report_corroborations", "list", "corroborations"),
-            ("report_tips", "list", "tips"),
-            ("distress_signals", "list", "distress_signals"),
-            ("safe_walks", "list", "safe_walks"),
-            ("shift_handovers", "list", "shift_handovers"),
-            ("criminals", "list", "criminals"),
-            ("activity_logs", "list", "activity_logs"),
+            ("police_stations", "list", "police_stations", ""),
+            ("profiles", "profiles", "profiles", ""),
+            ("reports", "list", "reports", "&order=created_at.desc"),
+            ("report_corroborations", "list", "corroborations", ""),
+            ("report_tips", "list", "tips", "&order=created_at.desc"),
+            ("distress_signals", "list", "distress_signals", "&order=triggered_at.desc"),
+            ("safe_walks", "list", "safe_walks", "&order=created_at.desc"),
+            ("shift_handovers", "list", "shift_handovers", "&order=created_at.desc"),
+            ("criminals", "list", "criminals", "&order=created_at.desc"),
+            ("activity_logs", "list", "activity_logs", "&order=created_at.desc"),
         )
         try:
             async with self._client() as client:
-                for table, mode, attr in table_targets:
+                for table, mode, attr, order_clause in table_targets:
                     resp = await client.get(
-                        f"{self.supabase_url}/rest/v1/{table}?select=*&limit=250",
+                        f"{self.supabase_url}/rest/v1/{table}?select=*&limit=250{order_clause}",
                         headers=self._service_headers(),
                     )
                     if resp.status_code != 200:
@@ -695,6 +711,18 @@ class SupabaseDaakStore(InMemoryDaakStore):
                     if not isinstance(rows, list):
                         continue
                     parsed = [self._from_postgrest_row(table, r) for r in rows]
+                    if table in {"police_stations", "reports", "distress_signals", "safe_walks"} and any(
+                        "lat" not in r or "lng" not in r for r in parsed
+                    ):
+                        print(
+                            emit_json_log(
+                                "supabase.hydrate_missing_coords",
+                                "store",
+                                {"table": table},
+                            ),
+                            flush=True,
+                        )
+                        continue
                     if mode == "profiles":
                         if parsed:
                             self.profiles.update({str(r["id"]): r for r in parsed if r.get("id")})

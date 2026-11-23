@@ -579,8 +579,11 @@ def test_false_reports_exclude_triaged_and_safety_excludes_rejected(client: Test
 
 def test_supabase_store_hydrates_and_reports_sync_failures() -> None:
     import asyncio
+    import struct
     import httpx
     from app.store import SupabaseDaakStore
+
+    ewkb_gulshan = struct.pack("<BII2d", 1, 0x20000001, 4326, 90.4152, 23.7925).hex().upper()
 
     def handler(req: httpx.Request) -> httpx.Response:
         if req.method == "GET" and req.url.path == "/rest/v1/reports":
@@ -592,10 +595,24 @@ def test_supabase_store_hydrates_and_reports_sync_failures() -> None:
                         "reporter_id": "11111111-1111-4111-8111-111111111101",
                         "title": "Persisted DB Report",
                         "area_name": "Gulshan",
-                        "location": {"type": "Point", "coordinates": [90.4152, 23.7925]},
+                        "location": ewkb_gulshan,
                         "status": "verified",
                         "flag_status": "none",
                         "suspicion_score": 5,
+                    }
+                ],
+            )
+        if req.method == "GET" and req.url.path == "/rest/v1/distress_signals":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "sos-db-1",
+                        "user_id": "11111111-1111-4111-8111-111111111101",
+                        "area_name": "Gulshan",
+                        "location": ewkb_gulshan,
+                        "status": "active",
+                        "triggered_at": "2026-11-23T12:00:00+00:00",
                     }
                 ],
             )
@@ -612,7 +629,10 @@ def test_supabase_store_hydrates_and_reports_sync_failures() -> None:
     asyncio.run(sb.hydrate_from_supabase())
     assert len(sb.reports) == 1
     assert sb.reports[0]["id"] == "rep-db-1"
-    assert sb.reports[0]["lat"] == 23.7925
-    assert sb.reports[0]["lng"] == 90.4152
+    assert sb.reports[0]["lat"] == pytest.approx(23.7925)
+    assert sb.reports[0]["lng"] == pytest.approx(90.4152)
+    assert len(sb.distress_signals) == 1
+    assert sb.distress_signals[0]["lat"] == pytest.approx(23.7925)
+    assert sb.distress_signals[0]["lng"] == pytest.approx(90.4152)
     assert asyncio.run(sb.sync_insert("reports", {"id": "r2", "lat": 23.7, "lng": 90.4})) is False
 

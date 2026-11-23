@@ -231,3 +231,66 @@ export async function syncMobileApiAction<T = unknown>(
     return null;
   }
 }
+
+export interface MobileHydratedReport {
+  id: string;
+  title: string;
+  area_name: string;
+  lat: number;
+  lng: number;
+  corroboration_count: number;
+  reporter_display_name?: string;
+}
+
+export interface MobileHydratedSafeWalk {
+  id: string;
+  destination_name: string;
+  expected_arrival_at: string;
+  status: string;
+}
+
+export interface MobileHydratedState {
+  reports: MobileHydratedReport[] | null;
+  activeWalk: MobileHydratedSafeWalk | null;
+  safetyScore: number | null;
+  nearestThana: { name_en: string; phone: string } | null;
+}
+
+export async function fetchMobileInitialState(
+  baseUrl: string,
+  token: string
+): Promise<MobileHydratedState | null> {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (!base || !token) return null;
+  const headers = { Authorization: `Bearer ${token}` };
+  try {
+    const [repResp, walkResp, scoreResp, thanaResp] = await Promise.all([
+      fetch(`${base}/api/v1/reports`, { headers }),
+      fetch(`${base}/api/v1/safe-walks`, { headers }),
+      fetch(`${base}/api/v1/safety-score?area=Dhanmondi`, { headers }),
+      fetch(`${base}/api/v1/thanas/nearest?limit=1`, { headers }),
+    ]);
+    const reportsJson = repResp.ok
+      ? ((await repResp.json()) as { data?: MobileHydratedReport[] })
+      : null;
+    const walksJson = walkResp.ok
+      ? ((await walkResp.json()) as { data?: MobileHydratedSafeWalk[] })
+      : null;
+    const scoreJson = scoreResp.ok
+      ? ((await scoreResp.json()) as { data?: { score?: number } })
+      : null;
+    const thanaJson = thanaResp.ok
+      ? ((await thanaResp.json()) as { data?: Array<{ name_en: string; phone: string }> })
+      : null;
+
+    const activeWalk = walksJson?.data?.find((w) => w.status === "active") ?? null;
+    return {
+      reports: reportsJson?.data ?? null,
+      activeWalk,
+      safetyScore: typeof scoreJson?.data?.score === "number" ? scoreJson.data.score : null,
+      nearestThana: thanaJson?.data?.[0] ?? null,
+    };
+  } catch {
+    return null;
+  }
+}

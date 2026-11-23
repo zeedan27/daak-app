@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Pressable,
   SafeAreaView,
@@ -17,6 +17,7 @@ import {
   canCorroborateIncident,
   createSosCountdown,
   evaluateSafeWalkDeadline,
+  fetchMobileInitialState,
   mobileDemoLogin,
   resolveBanglaOrBanglishThana,
   resolveMobileAreaCoords,
@@ -68,13 +69,16 @@ export default function App() {
 
   const [tab, setTab] = useState<TabId>("home");
   const [viewMode, setViewMode] = useState<ViewStateMode>("live");
-  const [apiToken, setApiToken] = useState<string | null>(null);
+  const tokenRef = useRef<string | null>(null);
   const [sosState, setSosState] = useState<SosCountdownState>({ status: "idle", secondsRemaining: 0 });
   const [sosBanner, setSosBanner] = useState<string | null>(null);
-  const [walkTarget] = useState("TSC, Dhaka University");
+  const [walkId, setWalkId] = useState<string | null>(null);
+  const [walkTarget, setWalkTarget] = useState("TSC, Dhaka University");
   const [walkDeadline, setWalkDeadline] = useState(() => new Date(Date.now() + 18 * 60_000).toISOString());
   const [walkNowMs, setWalkNowMs] = useState(() => Date.now());
   const [walkActive, setWalkActive] = useState(true);
+  const [safetyScore, setSafetyScore] = useState<number>(78);
+  const [nearestOverride, setNearestOverride] = useState<{ name_en: string; phone: string } | null>(null);
   const [reports, setReports] = useState<CitizenReportItem[]>(INITIAL_REPORTS);
   const [corroboratedIds, setCorroboratedIds] = useState<string[]>([]);
 
@@ -91,12 +95,48 @@ export default function App() {
   const userLat = userCoords.lat;
   const userLng = userCoords.lng;
 
+  const ensureToken = useCallback(async (): Promise<string | null> => {
+    if (!API_BASE) return null;
+    if (tokenRef.current) return tokenRef.current;
+    const tok = await mobileDemoLogin(API_BASE);
+    if (tok) tokenRef.current = tok;
+    return tok;
+  }, []);
+
   useEffect(() => {
     if (!API_BASE) return;
-    void mobileDemoLogin(API_BASE).then((tok) => {
-      if (tok) setApiToken(tok);
-    });
-  }, []);
+    let active = true;
+    void (async () => {
+      const tok = await ensureToken();
+      if (!tok || !active) return;
+      const hydrated = await fetchMobileInitialState(API_BASE, tok);
+      if (!hydrated || !active) return;
+      if (hydrated.reports && hydrated.reports.length > 0) {
+        setReports(
+          hydrated.reports.map((r) => ({
+            id: r.id,
+            title: r.title,
+            area: r.area_name,
+            lat: r.lat,
+            lng: r.lng,
+            corroborations: r.corroboration_count,
+            authorLabel: r.reporter_display_name ?? "Anonymous Citizen",
+          }))
+        );
+      }
+      if (hydrated.activeWalk) {
+        setWalkId(hydrated.activeWalk.id);
+        setWalkTarget(hydrated.activeWalk.destination_name);
+        setWalkDeadline(hydrated.activeWalk.expected_arrival_at);
+        setWalkActive(true);
+      }
+      if (hydrated.safetyScore !== null) setSafetyScore(hydrated.safetyScore);
+      if (hydrated.nearestThana) setNearestOverride(hydrated.nearestThana);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [ensureToken]);
 
   useEffect(() => {
     let mounted = true;
@@ -119,6 +159,29 @@ export default function App() {
     };
   }, []);
 
+  const fallbackNearest = resolveBanglaOrBanglishThana("dhanmondi");
+  const nearestThana = nearestOverride ?? fallbackNearest;
+  const currentAreaLabel = nearestThana.name_en.split(" ")[0] || "Dhaka";
+
+  const triggerEscalationRemote = useCallback(
+    async (now: number) => {
+      const tok = await ensureToken();
+      if (!tok) return;
+      if (walkId) {
+        await syncMobileApiAction(API_BASE, tok, `/api/v1/safe-walks/${walkId}/escalate`, "POST");
+      } else {
+        await syncMobileApiAction(API_BASE, tok, "/api/v1/sos", "POST", {
+          lat: userLat,
+          lng: userLng,
+          area_name: currentAreaLabel,
+          note: `Safe Walk timeout to ${walkTarget}`,
+          idempotency_key: `mob-walk-${now}`,
+        });
+      }
+    },
+    [currentAreaLabel, ensureToken, userLat, userLng, walkId, walkTarget]
+  );
+
   useEffect(() => {
     if (!walkActive) return;
     const interval = setInterval(() => {
@@ -129,18 +192,12 @@ export default function App() {
         setWalkActive(false);
         setSosBanner("Safe Walk timeout escalated to Police Monitor.");
         if (API_BASE) {
-          void syncMobileApiAction(API_BASE, apiToken, "/api/v1/sos", "POST", {
-            lat: userLat,
-            lng: userLng,
-            area_name: "Dhanmondi",
-            note: `Safe Walk timeout to ${walkTarget}`,
-            idempotency_key: `mob-walk-${now}`,
-          });
+          void triggerEscalationRemote(now);
         }
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [apiToken, userLat, userLng, walkActive, walkDeadline, walkTarget]);
+  }, [triggerEscalationRemote, walkActive, walkDeadline]);
 
   useEffect(() => {
     if (sosState.status !== "countdown") return;
@@ -150,23 +207,26 @@ export default function App() {
         if (next.status === "transmitting") {
           setSosBanner("SOS transmitted to Police Monitor (Simulated 999 Relay).");
           if (API_BASE) {
-            void syncMobileApiAction(API_BASE, apiToken, "/api/v1/sos", "POST", {
-              lat: userLat,
-              lng: userLng,
-              area_name: "Dhanmondi",
-              note: "Citizen SOS triggered from Mobile App",
-              idempotency_key: `mob-sos-${Date.now()}`,
-            });
+            void ensureToken().then((tok) =>
+              tok
+                ? syncMobileApiAction(API_BASE, tok, "/api/v1/sos", "POST", {
+                    lat: userLat,
+                    lng: userLng,
+                    area_name: currentAreaLabel,
+                    note: "Citizen SOS triggered from Mobile App",
+                    idempotency_key: `mob-sos-${Date.now()}`,
+                  })
+                : null
+            );
           }
         }
         return next;
       });
     }, 1000);
     return () => clearTimeout(timer);
-  }, [apiToken, sosState, userLat, userLng]);
+  }, [currentAreaLabel, ensureToken, sosState, userLat, userLng]);
 
   const walkStatus = evaluateSafeWalkDeadline(walkDeadline, walkNowMs);
-  const nearestThana = resolveBanglaOrBanglishThana("dhanmondi");
 
   const handlePublish = () => {
     if (!reportTitle.trim()) return;
@@ -186,16 +246,20 @@ export default function App() {
       ...prev,
     ]);
     if (API_BASE) {
-      void syncMobileApiAction(API_BASE, apiToken, "/api/v1/reports", "POST", {
-        category: "snatching",
-        severity: "medium",
-        title: titleVal,
-        description: `${titleVal} reported via Daak Citizen Mobile.`,
-        area_name: reportArea,
-        lat: coords.lat,
-        lng: coords.lng,
-        is_anonymous_public: hideIdentity,
-      });
+      void ensureToken().then((tok) =>
+        tok
+          ? syncMobileApiAction(API_BASE, tok, "/api/v1/reports", "POST", {
+              category: "snatching",
+              severity: "medium",
+              title: titleVal,
+              description: `${titleVal} reported via Daak Citizen Mobile.`,
+              area_name: reportArea,
+              lat: coords.lat,
+              lng: coords.lng,
+              is_anonymous_public: hideIdentity,
+            })
+          : null
+      );
     }
     setReportTitle("");
     setTab("home");
@@ -203,16 +267,19 @@ export default function App() {
 
   const handleAskAi = async () => {
     if (API_BASE) {
-      const remote = await syncMobileApiAction<{ reply?: string }>(
-        API_BASE,
-        apiToken,
-        "/api/v1/ai/chat",
-        "POST",
-        { prompt: aiQuery, lat: userLat, lng: userLng }
-      );
-      if (remote?.reply) {
-        setAiReply(remote.reply);
-        return;
+      const tok = await ensureToken();
+      if (tok) {
+        const remote = await syncMobileApiAction<{ reply?: string }>(
+          API_BASE,
+          tok,
+          "/api/v1/ai/chat",
+          "POST",
+          { prompt: aiQuery, lat: userLat, lng: userLng }
+        );
+        if (remote?.reply) {
+          setAiReply(remote.reply);
+          return;
+        }
       }
     }
     const station = resolveBanglaOrBanglishThana(aiQuery);
@@ -232,7 +299,7 @@ export default function App() {
           <Text style={styles.headerTitle}>Daak Safety</Text>
         </View>
         <View style={styles.scoreBadge}>
-          <Text style={styles.scoreText}>Safety 78</Text>
+          <Text style={styles.scoreText}>Safety {safetyScore}</Text>
         </View>
       </View>
 
@@ -288,7 +355,22 @@ export default function App() {
                   <Pressable
                     accessibilityRole="button"
                     style={[styles.actionBtn, { backgroundColor: colors.primaryTeal, flex: 1 }]}
-                    onPress={() => setWalkActive(false)}
+                    onPress={() => {
+                      setWalkActive(false);
+                      if (API_BASE && walkId) {
+                        void ensureToken().then((tok) =>
+                          tok
+                            ? syncMobileApiAction(
+                                API_BASE,
+                                tok,
+                                `/api/v1/safe-walks/${walkId}/checkin`,
+                                "PATCH",
+                                { action: "complete" }
+                              )
+                            : null
+                        );
+                      }
+                    }}
                   >
                     <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Check in safe</Text>
                   </Pressable>
@@ -301,13 +383,7 @@ export default function App() {
                       setWalkActive(false);
                       setSosBanner("Safe Walk timeout escalated to Police Monitor.");
                       if (API_BASE) {
-                        void syncMobileApiAction(API_BASE, apiToken, "/api/v1/sos", "POST", {
-                          lat: userLat,
-                          lng: userLng,
-                          area_name: "Dhanmondi",
-                          note: `Safe Walk timeout to ${walkTarget}`,
-                          idempotency_key: `mob-walk-manual-${now}`,
-                        });
+                        void triggerEscalationRemote(now);
                       }
                     }}
                   >
@@ -381,12 +457,16 @@ export default function App() {
                         )
                       );
                       if (API_BASE) {
-                        void syncMobileApiAction(
-                          API_BASE,
-                          apiToken,
-                          `/api/v1/reports/${rep.id}/corroborate`,
-                          "POST",
-                          { user_lat: userLat, user_lng: userLng }
+                        void ensureToken().then((tok) =>
+                          tok
+                            ? syncMobileApiAction(
+                                API_BASE,
+                                tok,
+                                `/api/v1/reports/${rep.id}/corroborate`,
+                                "POST",
+                                { user_lat: userLat, user_lng: userLng }
+                              )
+                            : null
                         );
                       }
                     }}

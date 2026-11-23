@@ -365,6 +365,9 @@ async def list_sos(
     for sig in items:
         nearest = find_nearest_thanas(store.police_stations, lat=sig["lat"], lng=sig["lng"], limit=1)
         copy = dict(sig)
+        copy["citizen_name"] = copy.get("citizen_name") or store.profiles.get(copy.get("user_id", ""), {}).get(
+            "full_name", "Daak Citizen"
+        )
         copy["nearest_thana"] = nearest[0] if nearest else None
         enriched.append(copy)
     return _ok(request, enriched)
@@ -1032,8 +1035,19 @@ async def daakai_chat(
                     if content:
                         triage["reply"] = content
                         triage["mode"] = "llm_grounded"
+                elif not ai_fallback_enabled:
+                    raise DaakAPIError(
+                        503,
+                        "AI_PROVIDER_UNAVAILABLE",
+                        "AI provider failed and deterministic fallback is disabled.",
+                    )
         except httpx.HTTPError:
-            pass
+            if not ai_fallback_enabled:
+                raise DaakAPIError(
+                    503,
+                    "AI_PROVIDER_UNAVAILABLE",
+                    "AI provider failed and deterministic fallback is disabled.",
+                )
 
     return _ok(request, triage)
 
@@ -1050,7 +1064,14 @@ async def list_handovers(
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
     _require_roles(user, {"police", "admin"})
-    return _ok(request, store.shift_handovers)
+    enriched = []
+    for ho in store.shift_handovers:
+        copy = dict(ho)
+        copy["officer_name"] = copy.get("officer_name") or store.profiles.get(
+            copy.get("outgoing_officer_id", ""), {}
+        ).get("full_name", "Duty Officer")
+        enriched.append(copy)
+    return _ok(request, enriched)
 
 
 @app.post("/api/v1/police/handovers", status_code=201)
