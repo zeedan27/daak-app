@@ -36,11 +36,21 @@
 - [x] Provision Supabase Cloud project `daak-v2` in `ap-south-1` (`ACTIVE_HEALTHY`) and verify `postgis` + `pg_trgm` spatial handshake
 - [x] Create and execute `tools/verify_connections.py` (hygiene/frontmatter, JSON log redaction, Supabase Auth & REST health handshake, Bangla/Banglish DaakAI deterministic fallback handshake, Git/CI check)
 - [x] Record Phase 2 handshake results in `findings.md`, `architecture/decisions.md` (`ADR-006`), and `progress.md`
-- [ ] **Phase 2 Checkpoint — Stop and obtain user confirmation before Phase 3**
+- [x] **Phase 2 Checkpoint — Stop and obtain user confirmation before Phase 3**
 
-## Phase 3: O — Organization (The 3-Layer Build) *(Placeholder)*
-- **Candidate Skills / MCPs:** `scope/references/stack-matrix.md`, `supabase`, `supabase-postgres-best-practices`, `vercel-react-best-practices`, `test-driven-development`, `systematic-debugging`, `verification-before-completion`, `requesting-code-review`, `context7` MCP
-- **High-Level Goal:** Build vertical feature slices (`<= 5` code files per slice) across Supabase migrations/RLS/seed, Python FastAPI domain services, Next.js Police & Admin Desktop Web, and Expo Citizen Mobile (+ Web Preview) with TDD, review gates, and `progress.md` proof.
+---
+
+## Phase 3: O — Organization (The 3-Layer Build) — In Progress
+- [x] Read Phase 3 skills (`scope/references/stack-matrix.md`, `scope/references/caching-and-scaling.md`, `test-driven-development`, `verification-before-completion`, `requesting-code-review`, `systematic-debugging`, `supabase-postgres-best-practices`, `vercel-react-best-practices`, `impeccable/reference/craft-floor.md`)
+- [x] Author Layer 1 Architecture SOPs (`architecture/data.md`, `architecture/auth.md`, `architecture/security.md`, `architecture/rate-limiting.md`, `architecture/caching.md`)
+- [ ] **Slice 3.1:** Supabase PostGIS Schema, Default-Deny RLS, `security_invoker` Views, Storage Buckets & Bangladesh Demo Seed (`supabase/migrations/*`, `tools/verify_schema_rls.py`)
+- [ ] **Slice 3.2:** FastAPI Core Foundation & Deterministic Domain Engines (`apps/api/pyproject.toml`, `apps/api/app/__init__.py`, `apps/api/app/core.py`, `apps/api/app/engines.py`, `apps/api/tests/test_engines.py`)
+- [ ] **Slice 3.3:** FastAPI `/api/v1` Routers, Store Adapter & Integration Test Suite (`apps/api/app/schemas.py`, `apps/api/app/store.py`, `apps/api/app/main.py`, `apps/api/tests/test_api.py`)
+- [ ] **Mid-Phase 3 Code Review (`requesting-code-review`)** on Slices 3.1–3.3
+- [ ] **Slice 3.4:** Police & Admin Desktop Web (`apps/web`) — Shell, 1-Click Demo Role Switcher & Live SOS SLA Command Deck (`<= 5` code files)
+- [ ] **Slice 3.5:** Police & Admin Desktop Web (`apps/web`) — Crime Heatmap, Report Review, 5-Factor False-Report Triage, Shift Handovers & Criminal Watchlist CRUD (`<= 5` code files)
+- [ ] **Slice 3.6:** Citizen Mobile App + Expo Web Preview (`apps/mobile`) — Tactile 5s SOS Ring, Safe Walk Escort Timer, Incident Reporting + 1km Corroboration, Area Safety Score/Map & Bangla/Banglish DaakAI (`<= 5` code files)
+- [ ] **Phase 3 Checkpoint — Stop and obtain user confirmation before Phase 4**
 
 ## Phase 4: P — Polish (Refinement, UI & Quality) *(Placeholder)*
 - **Candidate Skills / Commands:** `impeccable`, `web-design-guidelines`, `vercel-react-best-practices`, `/browser`

@@ -9,8 +9,8 @@ You are the **System Pilot**. Build deterministic, self-healing, production-grad
 - Project: Daak v2 (Bangladesh Crime-Reporting & Emergency-Response Platform)
 - Tier: T1-Lite (Portfolio Production)
 - Stack: Expo Mobile + Expo Web Preview (`apps/mobile`) | Next.js Desktop Web (`apps/web`) | FastAPI (`apps/api`) | Supabase PostgreSQL/PostGIS/Auth/Storage/Realtime
-- Core Commands: TBD on Phase 3 scaffold (`typecheck`, `build`, `test`, `lint`)
-- Current Phase: 2 (Connections — Connectivity & Credentials)
+- Core Commands: `typecheck: npm run typecheck` | `build: npm run build` | `test: uv run --project apps/api pytest && npm test` | `lint: npm run lint`
+- Current Phase: 3 (Organization — The 3-Layer Build)
 
 ## Precedence Hierarchy
 1. This file (`AGENTS.md`)
