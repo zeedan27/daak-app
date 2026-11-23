@@ -214,11 +214,16 @@ def test_rate_limiter_cache_and_log_redaction() -> None:
     assert not allowed_3
     assert retry_after >= 1
 
-    cache = TTLCache(ttl_seconds=30)
+    cache = TTLCache(ttl_seconds=30, max_entries=2)
     cache.set("k1", {"score": 82})
     assert cache.get("k1") == {"score": 82}
     cache.invalidate_prefix("k")
     assert cache.get("k1") is None
+    cache.set("a", 1)
+    cache.set("b", 2)
+    cache.set("c", 3)
+    assert cache.get("a") is None
+    assert cache.get("b") == 2 and cache.get("c") == 3
 
     redacted = redact_sensitive_data({"Authorization": "Bearer secret_999", "area": "Dhanmondi"})
     assert redacted["Authorization"] == "[REDACTED]"

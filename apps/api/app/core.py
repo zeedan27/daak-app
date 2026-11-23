@@ -87,10 +87,11 @@ class SlidingWindowRateLimiter:
 
 
 class TTLCache:
-    """Simple TTL cache with prefix invalidation for spatial aggregates."""
+    """Bounded TTL cache with prefix invalidation for spatial aggregates."""
 
-    def __init__(self, ttl_seconds: int = 30) -> None:
+    def __init__(self, ttl_seconds: int = 30, max_entries: int = 512) -> None:
         self._ttl_seconds = ttl_seconds
+        self._max_entries = max(1, max_entries)
         self._entries: dict[str, tuple[float, Any]] = {}
 
     def get(self, key: str, now: float | None = None) -> Any | None:
@@ -106,8 +107,15 @@ class TTLCache:
         return value
 
     def set(self, key: str, value: Any, now: float | None = None) -> None:
-        """Store value with configured TTL."""
+        """Store value with configured TTL while enforcing max_entries bound."""
         current = time.monotonic() if now is None else now
+        if len(self._entries) >= self._max_entries and key not in self._entries:
+            expired = [k for k, (exp, _) in self._entries.items() if current >= exp]
+            for k in expired:
+                self._entries.pop(k, None)
+            while len(self._entries) >= self._max_entries:
+                oldest = next(iter(self._entries))
+                self._entries.pop(oldest, None)
         self._entries[key] = (current + self._ttl_seconds, value)
 
     def invalidate_prefix(self, prefix: str) -> None:

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+
+from app.core import emit_json_log
 
 
 def _iso_ago(**kwargs: int) -> str:
@@ -531,17 +534,21 @@ class InMemoryDaakStore:
         """Verify store health."""
         return len(self.police_stations) > 0
 
-    async def sync_insert(self, table: str, payload: dict[str, Any]) -> None:
+    async def hydrate_from_supabase(self) -> None:
         """No-op hook overridden by SupabaseDaakStore."""
         return None
 
-    async def sync_update(self, table: str, record_id: str, payload: dict[str, Any]) -> None:
+    async def sync_insert(self, table: str, payload: dict[str, Any]) -> bool:
         """No-op hook overridden by SupabaseDaakStore."""
-        return None
+        return True
 
-    async def sync_delete(self, table: str, record_id: str) -> None:
+    async def sync_update(self, table: str, record_id: str, payload: dict[str, Any]) -> bool:
         """No-op hook overridden by SupabaseDaakStore."""
-        return None
+        return True
+
+    async def sync_delete(self, table: str, record_id: str) -> bool:
+        """No-op hook overridden by SupabaseDaakStore."""
+        return True
 
     async def resolve_user_from_token(self, token: str) -> dict[str, Any] | None:
         """Resolve user profile from demo token (when DEMO_MODE=true) or live Supabase Auth."""
@@ -591,42 +598,148 @@ class SupabaseDaakStore(InMemoryDaakStore):
         except httpx.HTTPError:
             return False
 
-    async def sync_insert(self, table: str, payload: dict[str, Any]) -> None:
+    async def _sync_request(
+        self,
+        op: str,
+        method: str,
+        table: str,
+        url: str,
+        json_body: dict[str, Any] | None = None,
+    ) -> bool:
+        try:
+            async with self._client() as client:
+                resp = await client.request(
+                    method,
+                    url,
+                    headers=self._service_headers(),
+                    json=json_body,
+                )
+                if resp.status_code >= 400:
+                    print(
+                        emit_json_log(
+                            "supabase.sync_error",
+                            "store",
+                            {"op": op, "table": table, "status_code": resp.status_code},
+                        ),
+                        flush=True,
+                    )
+                    return False
+                return True
+        except httpx.HTTPError as exc:
+            print(
+                emit_json_log(
+                    "supabase.sync_exception",
+                    "store",
+                    {"op": op, "table": table, "error": type(exc).__name__},
+                ),
+                flush=True,
+            )
+            return False
+
+    @staticmethod
+    def _extract_point_coords(raw: Any) -> tuple[float, float] | None:
+        if isinstance(raw, dict) and isinstance(raw.get("coordinates"), (list, tuple)) and len(raw["coordinates"]) >= 2:
+            return float(raw["coordinates"][1]), float(raw["coordinates"][0])
+        if isinstance(raw, str):
+            m = re.search(r"POINT\s*\(\s*([-0-9.]+)\s+([-0-9.]+)\s*\)", raw, re.IGNORECASE)
+            if m:
+                return float(m.group(2)), float(m.group(1))
+        return None
+
+    @classmethod
+    def _from_postgrest_row(cls, table: str, row: dict[str, Any]) -> dict[str, Any]:
+        item = dict(row)
+        loc_col = "last_known_location" if table == "safe_walks" else "location"
+        if loc_col in item and ("lat" not in item or "lng" not in item):
+            coords = cls._extract_point_coords(item.get(loc_col))
+            if coords:
+                item["lat"], item["lng"] = coords
+        if "destination_location" in item and ("destination_lat" not in item or "destination_lng" not in item):
+            dcoords = cls._extract_point_coords(item.get("destination_location"))
+            if dcoords:
+                item["destination_lat"], item["destination_lng"] = dcoords
+        return item
+
+    async def hydrate_from_supabase(self) -> None:
+        """Load persisted records from Supabase PostgREST on cold start."""
+        table_targets = (
+            ("police_stations", "list", "police_stations"),
+            ("profiles", "profiles", "profiles"),
+            ("reports", "list", "reports"),
+            ("report_corroborations", "list", "corroborations"),
+            ("report_tips", "list", "tips"),
+            ("distress_signals", "list", "distress_signals"),
+            ("safe_walks", "list", "safe_walks"),
+            ("shift_handovers", "list", "shift_handovers"),
+            ("criminals", "list", "criminals"),
+            ("activity_logs", "list", "activity_logs"),
+        )
+        try:
+            async with self._client() as client:
+                for table, mode, attr in table_targets:
+                    resp = await client.get(
+                        f"{self.supabase_url}/rest/v1/{table}?select=*&limit=250",
+                        headers=self._service_headers(),
+                    )
+                    if resp.status_code != 200:
+                        print(
+                            emit_json_log(
+                                "supabase.hydrate_error",
+                                "store",
+                                {"table": table, "status_code": resp.status_code},
+                            ),
+                            flush=True,
+                        )
+                        continue
+                    rows = resp.json()
+                    if not isinstance(rows, list):
+                        continue
+                    parsed = [self._from_postgrest_row(table, r) for r in rows]
+                    if mode == "profiles":
+                        if parsed:
+                            self.profiles.update({str(r["id"]): r for r in parsed if r.get("id")})
+                    elif parsed:
+                        setattr(self, attr, parsed)
+        except httpx.HTTPError as exc:
+            print(
+                emit_json_log(
+                    "supabase.hydrate_exception",
+                    "store",
+                    {"error": type(exc).__name__},
+                ),
+                flush=True,
+            )
+
+    async def sync_insert(self, table: str, payload: dict[str, Any]) -> bool:
         """Persist a newly created record to Supabase Postgres via PostgREST."""
         row = self._to_postgrest_payload(table, payload)
-        try:
-            async with self._client() as client:
-                await client.post(
-                    f"{self.supabase_url}/rest/v1/{table}",
-                    headers=self._service_headers(),
-                    json=row,
-                )
-        except httpx.HTTPError:
-            pass
+        return await self._sync_request(
+            "insert",
+            "POST",
+            table,
+            f"{self.supabase_url}/rest/v1/{table}",
+            row,
+        )
 
-    async def sync_update(self, table: str, record_id: str, payload: dict[str, Any]) -> None:
+    async def sync_update(self, table: str, record_id: str, payload: dict[str, Any]) -> bool:
         """Persist record field updates to Supabase Postgres via PostgREST."""
         row = self._to_postgrest_payload(table, payload)
-        try:
-            async with self._client() as client:
-                await client.patch(
-                    f"{self.supabase_url}/rest/v1/{table}?id=eq.{record_id}",
-                    headers=self._service_headers(),
-                    json=row,
-                )
-        except httpx.HTTPError:
-            pass
+        return await self._sync_request(
+            "update",
+            "PATCH",
+            table,
+            f"{self.supabase_url}/rest/v1/{table}?id=eq.{record_id}",
+            row,
+        )
 
-    async def sync_delete(self, table: str, record_id: str) -> None:
+    async def sync_delete(self, table: str, record_id: str) -> bool:
         """Delete a record from Supabase Postgres via PostgREST."""
-        try:
-            async with self._client() as client:
-                await client.delete(
-                    f"{self.supabase_url}/rest/v1/{table}?id=eq.{record_id}",
-                    headers=self._service_headers(),
-                )
-        except httpx.HTTPError:
-            pass
+        return await self._sync_request(
+            "delete",
+            "DELETE",
+            table,
+            f"{self.supabase_url}/rest/v1/{table}?id=eq.{record_id}",
+        )
 
     @staticmethod
     def _to_postgrest_payload(table: str, payload: dict[str, Any]) -> dict[str, Any]:

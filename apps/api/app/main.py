@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -59,6 +60,7 @@ _is_shutting_down: bool = False
 async def lifespan(_app: FastAPI):
     global _is_shutting_down
     _is_shutting_down = False
+    await _default_store.hydrate_from_supabase()
     print(emit_json_log("api.startup", "lifecycle", {"version": "0.2.0"}), flush=True)
     yield
     _is_shutting_down = True
@@ -115,7 +117,9 @@ class DaakAPIError(Exception):
 
 @app.middleware("http")
 async def request_context_middleware(request: Request, call_next):
-    req_id = request.headers.get("x-request-id") or f"req_{uuid.uuid4().hex[:12]}"
+    raw_req_id = request.headers.get("x-request-id") or ""
+    sanitized_id = re.sub(r"[^A-Za-z0-9._-]", "", raw_req_id)[:64]
+    req_id = sanitized_id or f"req_{uuid.uuid4().hex[:12]}"
     request.state.request_id = req_id
     response = await call_next(request)
     response.headers["X-Request-ID"] = req_id
@@ -869,7 +873,8 @@ async def get_safety_score(
             area_reports = [
                 r
                 for r in store.reports
-                if r.get("flag_status") not in {"flagged", "confirmed_false"}
+                if r.get("status") != "rejected"
+                and r.get("flag_status") not in {"flagged", "confirmed_false"}
                 and haversine_meters(lat, lng, float(r["lat"]), float(r["lng"])) <= radius_m
             ]
             label = f"Within {round(radius_m / 1000, 1)} km"
@@ -878,7 +883,8 @@ async def get_safety_score(
             area_reports = [
                 r
                 for r in store.reports
-                if r.get("flag_status") not in {"flagged", "confirmed_false"}
+                if r.get("status") != "rejected"
+                and r.get("flag_status") not in {"flagged", "confirmed_false"}
                 and area.lower().split("-")[0] in r["area_name"].lower()
             ]
             cached = calculate_area_safety_score(area, area_reports)
@@ -988,8 +994,16 @@ async def daakai_chat(
     )
 
     ai_api_key = os.environ.get("AI_API_KEY", "").strip()
+    ai_fallback_enabled = os.environ.get("AI_FALLBACK_ENABLED", "true").lower() == "true"
     ai_base_url = os.environ.get("AI_BASE_URL", "https://api.openai.com/v1").strip().rstrip("/")
     ai_model = os.environ.get("AI_MODEL", "gpt-4.1-mini").strip()
+
+    if not ai_api_key and not ai_fallback_enabled:
+        raise DaakAPIError(
+            503,
+            "AI_PROVIDER_UNAVAILABLE",
+            "AI provider is not configured and deterministic fallback is disabled.",
+        )
 
     if ai_api_key:
         system_prompt = (
@@ -1150,7 +1164,8 @@ async def list_false_reports(
     flagged = [
         _serialize_public_report(r, user, store)
         for r in store.reports
-        if r.get("flag_status") == "flagged" or int(r.get("suspicion_score", 0)) >= 50
+        if r.get("flag_status") not in {"cleared", "confirmed_false"}
+        and (r.get("flag_status") == "flagged" or int(r.get("suspicion_score", 0)) >= 50)
     ]
     flagged.sort(key=lambda r: r.get("suspicion_score") or 0, reverse=True)
     return _ok(request, flagged)

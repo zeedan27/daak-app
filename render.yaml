@@ -6,7 +6,7 @@ services:
     region: singapore
     rootDir: apps/api
     buildCommand: pip install uv && uv sync --frozen --no-dev
-    startCommand: uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 65
+    startCommand: uv run --frozen --no-dev uvicorn app.main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 65
     healthCheckPath: /healthz/ready
     autoDeploy: true
     envVars:
@@ -23,8 +23,6 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_JWT_SECRET
         sync: false
       - key: API_CORS_ORIGINS
         sync: false

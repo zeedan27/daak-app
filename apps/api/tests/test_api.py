@@ -519,3 +519,100 @@ def test_readiness_returns_503_when_shutting_down(client: TestClient) -> None:
     finally:
         main_module._is_shutting_down = prev
 
+
+def test_false_reports_exclude_triaged_and_safety_excludes_rejected(client: TestClient) -> None:
+    admin_hdr = _auth_header(client, "admin")
+    citizen_hdr = _auth_header(client, "citizen")
+
+    initial = client.get("/api/v1/admin/false-reports", headers=admin_hdr).json()["data"]
+    assert len(initial) >= 2
+    target_id = initial[0]["id"]
+
+    # Confirming false moves status -> rejected and flag_status -> confirmed_false; must exit queue
+    mod = client.patch(
+        f"/api/v1/admin/reports/{target_id}/moderate",
+        json={"flag_status": "confirmed_false"},
+        headers=admin_hdr,
+    )
+    assert mod.status_code == 200
+    after = client.get("/api/v1/admin/false-reports", headers=admin_hdr).json()["data"]
+    assert all(r["id"] != target_id for r in after)
+
+    # Cleared item also exits queue
+    if after:
+        second_id = after[0]["id"]
+        cleared = client.patch(
+            f"/api/v1/admin/reports/{second_id}/moderate",
+            json={"flag_status": "cleared", "status": "verified"},
+            headers=admin_hdr,
+        )
+        assert cleared.status_code == 200
+        after_clear = client.get("/api/v1/admin/false-reports", headers=admin_hdr).json()["data"]
+        assert all(r["id"] != second_id for r in after_clear)
+
+    # Rejected reports excluded from safety-score
+    store = app.dependency_overrides[get_store]()
+    store.reports.append(
+        {
+            "id": "rep-rejected-ut",
+            "reporter_id": "11111111-1111-4111-8111-111111111101",
+            "is_anonymous_public": False,
+            "category": "snatching",
+            "severity": "critical",
+            "title": "Rejected test",
+            "description": "Rejected",
+            "area_name": "Sylhet",
+            "lat": 24.8949,
+            "lng": 91.8687,
+            "occurred_at": "2026-11-23T10:00:00+00:00",
+            "created_at": "2026-11-23T10:00:00+00:00",
+            "status": "rejected",
+            "corroboration_count": 0,
+            "suspicion_score": 10,
+            "flag_status": "none",
+            "suspicion_reasons": [],
+        }
+    )
+    sylhet = client.get("/api/v1/safety-score?area=Sylhet", headers=citizen_hdr).json()["data"]
+    assert sylhet["report_count"] == 0
+
+
+def test_supabase_store_hydrates_and_reports_sync_failures() -> None:
+    import asyncio
+    import httpx
+    from app.store import SupabaseDaakStore
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path == "/rest/v1/reports":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": "rep-db-1",
+                        "reporter_id": "11111111-1111-4111-8111-111111111101",
+                        "title": "Persisted DB Report",
+                        "area_name": "Gulshan",
+                        "location": {"type": "Point", "coordinates": [90.4152, 23.7925]},
+                        "status": "verified",
+                        "flag_status": "none",
+                        "suspicion_score": 5,
+                    }
+                ],
+            )
+        if req.method == "POST":
+            return httpx.Response(500, json={"message": "db write failed"})
+        return httpx.Response(200, json=[])
+
+    sb = SupabaseDaakStore(
+        supabase_url="https://example.supabase.co",
+        anon_key="pub",
+        service_role_key="srv",
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(sb.hydrate_from_supabase())
+    assert len(sb.reports) == 1
+    assert sb.reports[0]["id"] == "rep-db-1"
+    assert sb.reports[0]["lat"] == 23.7925
+    assert sb.reports[0]["lng"] == 90.4152
+    assert asyncio.run(sb.sync_insert("reports", {"id": "r2", "lat": 23.7, "lng": 90.4})) is False
+
