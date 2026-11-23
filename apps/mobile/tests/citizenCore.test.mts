@@ -8,6 +8,7 @@ import {
   evaluateSafeWalkDeadline,
   MOBILE_PALETTE,
   resolveBanglaOrBanglishThana,
+  resolveMobileAreaCoords,
   tickSosCountdown,
 } from "../src/citizenCore.ts";
 
@@ -79,4 +80,14 @@ test("MOBILE_PALETTE light and dark themes expose contrast-safe semantic tokens"
   assert.notEqual(MOBILE_PALETTE.light.railCommitted, MOBILE_PALETTE.dark.railCommitted);
   assert.notEqual(MOBILE_PALETTE.light.emergencyFill, MOBILE_PALETTE.dark.emergencyFill);
   assert.notEqual(MOBILE_PALETTE.light.onPrimary, MOBILE_PALETTE.dark.onPrimary);
+});
+
+test("resolveMobileAreaCoords returns distinct coordinates per Dhaka area", () => {
+  const dhanmondi = resolveMobileAreaCoords("Dhanmondi");
+  const mirpur = resolveMobileAreaCoords("Mirpur-10");
+  const uttara = resolveMobileAreaCoords("Uttara");
+  const gulshan = resolveMobileAreaCoords("Gulshan");
+  assert.notEqual(dhanmondi.lat, mirpur.lat);
+  assert.notEqual(mirpur.lat, uttara.lat);
+  assert.notEqual(uttara.lng, gulshan.lng);
 });

@@ -171,3 +171,63 @@ export function resolveBanglaOrBanglishThana(query: string): ThanaContact {
   const matched = DHAKA_THANAS.find((t) => t.keywords.some((kw) => lowered.includes(kw)));
   return matched ?? DHAKA_THANAS[0];
 }
+
+export const MOBILE_AREA_COORDINATES: Record<string, { lat: number; lng: number }> = {
+  dhanmondi: { lat: 23.7465, lng: 90.376 },
+  "mirpur-10": { lat: 23.8069, lng: 90.3688 },
+  mirpur: { lat: 23.8069, lng: 90.3688 },
+  shahbagh: { lat: 23.7385, lng: 90.3954 },
+  mohammadpur: { lat: 23.7654, lng: 90.3587 },
+  uttara: { lat: 23.8759, lng: 90.4005 },
+  gulshan: { lat: 23.7925, lng: 90.4152 },
+  motijheel: { lat: 23.733, lng: 90.4173 },
+};
+
+export function resolveMobileAreaCoords(area: string): { lat: number; lng: number } {
+  const key = area.trim().toLowerCase();
+  if (MOBILE_AREA_COORDINATES[key]) return MOBILE_AREA_COORDINATES[key];
+  const matched = Object.entries(MOBILE_AREA_COORDINATES).find(([k]) => key.includes(k));
+  return matched ? matched[1] : MOBILE_AREA_COORDINATES.dhanmondi;
+}
+
+export async function mobileDemoLogin(baseUrl: string): Promise<string | null> {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (!base) return null;
+  try {
+    const resp = await fetch(`${base}/api/v1/auth/demo-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: "citizen" }),
+    });
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as { data?: { access_token?: string } };
+    return json.data?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function syncMobileApiAction<T = unknown>(
+  baseUrl: string,
+  token: string | null,
+  path: string,
+  method: string,
+  body?: unknown
+): Promise<T | null> {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  if (!base) return null;
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const resp = await fetch(`${base}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as { data?: T };
+    return json.data ?? null;
+  } catch {
+    return null;
+  }
+}

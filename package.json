@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev:web": "npm --prefix apps/web run dev",
-    "typecheck": "npm --prefix apps/web run typecheck",
+    "typecheck": "npm --prefix apps/web run typecheck && npm --prefix apps/web exec -- tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict apps/mobile/src/citizenCore.ts",
     "build": "npm --prefix apps/web run build",
     "test": "node --test apps/web/tests/opsLogic.test.mts apps/mobile/tests/citizenCore.test.mts",
     "lint": "python tools/verify_connections.py --quick && python tools/verify_schema_rls.py"

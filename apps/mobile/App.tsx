@@ -17,10 +17,15 @@ import {
   canCorroborateIncident,
   createSosCountdown,
   evaluateSafeWalkDeadline,
+  mobileDemoLogin,
   resolveBanglaOrBanglishThana,
+  resolveMobileAreaCoords,
+  syncMobileApiAction,
   tickSosCountdown,
   type SosCountdownState,
 } from "./src/citizenCore";
+
+const API_BASE = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "").trim();
 
 type TabId = "home" | "map" | "reports" | "ai";
 type ViewStateMode = "live" | "loading" | "empty" | "error";
@@ -33,6 +38,7 @@ interface CitizenReportItem {
   lng: number;
   corroborations: number;
   authorLabel: string;
+  isOwn?: boolean;
 }
 
 const INITIAL_REPORTS: CitizenReportItem[] = [
@@ -62,12 +68,15 @@ export default function App() {
 
   const [tab, setTab] = useState<TabId>("home");
   const [viewMode, setViewMode] = useState<ViewStateMode>("live");
+  const [apiToken, setApiToken] = useState<string | null>(null);
   const [sosState, setSosState] = useState<SosCountdownState>({ status: "idle", secondsRemaining: 0 });
   const [sosBanner, setSosBanner] = useState<string | null>(null);
   const [walkTarget] = useState("TSC, Dhaka University");
   const [walkDeadline, setWalkDeadline] = useState(() => new Date(Date.now() + 18 * 60_000).toISOString());
+  const [walkNowMs, setWalkNowMs] = useState(() => Date.now());
   const [walkActive, setWalkActive] = useState(true);
   const [reports, setReports] = useState<CitizenReportItem[]>(INITIAL_REPORTS);
+  const [corroboratedIds, setCorroboratedIds] = useState<string[]>([]);
 
   const [reportTitle, setReportTitle] = useState("");
   const [reportArea, setReportArea] = useState("Dhanmondi");
@@ -75,8 +84,63 @@ export default function App() {
   const [aiQuery, setAiQuery] = useState("Dhanmondi te raat e hata safe?");
   const [aiReply, setAiReply] = useState<string | null>(null);
 
-  const userLat = 23.7465;
-  const userLng = 90.376;
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number }>({
+    lat: 23.7465,
+    lng: 90.376,
+  });
+  const userLat = userCoords.lat;
+  const userLng = userCoords.lng;
+
+  useEffect(() => {
+    if (!API_BASE) return;
+    void mobileDemoLogin(API_BASE).then((tok) => {
+      if (tok) setApiToken(tok);
+    });
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const Location = await import("expo-location");
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted" && mounted) {
+          const pos = await Location.getCurrentPositionAsync({});
+          if (mounted) {
+            setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }
+        }
+      } catch {
+        // Fallback to Dhanmondi coordinates when native location is unavailable
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!walkActive) return;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setWalkNowMs(now);
+      const check = evaluateSafeWalkDeadline(walkDeadline, now);
+      if (check.shouldAutoEscalate) {
+        setWalkActive(false);
+        setSosBanner("Safe Walk timeout escalated to Police Monitor.");
+        if (API_BASE) {
+          void syncMobileApiAction(API_BASE, apiToken, "/api/v1/sos", "POST", {
+            lat: userLat,
+            lng: userLng,
+            area_name: "Dhanmondi",
+            note: `Safe Walk timeout to ${walkTarget}`,
+            idempotency_key: `mob-walk-${now}`,
+          });
+        }
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [apiToken, userLat, userLng, walkActive, walkDeadline, walkTarget]);
 
   useEffect(() => {
     if (sosState.status !== "countdown") return;
@@ -85,35 +149,72 @@ export default function App() {
         const next = tickSosCountdown(prev);
         if (next.status === "transmitting") {
           setSosBanner("SOS transmitted to Police Monitor (Simulated 999 Relay).");
+          if (API_BASE) {
+            void syncMobileApiAction(API_BASE, apiToken, "/api/v1/sos", "POST", {
+              lat: userLat,
+              lng: userLng,
+              area_name: "Dhanmondi",
+              note: "Citizen SOS triggered from Mobile App",
+              idempotency_key: `mob-sos-${Date.now()}`,
+            });
+          }
         }
         return next;
       });
     }, 1000);
     return () => clearTimeout(timer);
-  }, [sosState]);
+  }, [apiToken, sosState, userLat, userLng]);
 
-  const walkStatus = evaluateSafeWalkDeadline(walkDeadline);
+  const walkStatus = evaluateSafeWalkDeadline(walkDeadline, walkNowMs);
   const nearestThana = resolveBanglaOrBanglishThana("dhanmondi");
 
   const handlePublish = () => {
     if (!reportTitle.trim()) return;
+    const titleVal = reportTitle.trim();
+    const coords = resolveMobileAreaCoords(reportArea);
     setReports((prev) => [
       {
         id: `rep-${Date.now()}`,
-        title: reportTitle.trim(),
+        title: titleVal,
         area: reportArea,
-        lat: userLat,
-        lng: userLng,
+        lat: coords.lat,
+        lng: coords.lng,
         corroborations: 0,
         authorLabel: hideIdentity ? "Anonymous Citizen" : "Nadia Rahman",
+        isOwn: true,
       },
       ...prev,
     ]);
+    if (API_BASE) {
+      void syncMobileApiAction(API_BASE, apiToken, "/api/v1/reports", "POST", {
+        category: "snatching",
+        severity: "medium",
+        title: titleVal,
+        description: `${titleVal} reported via Daak Citizen Mobile.`,
+        area_name: reportArea,
+        lat: coords.lat,
+        lng: coords.lng,
+        is_anonymous_public: hideIdentity,
+      });
+    }
     setReportTitle("");
     setTab("home");
   };
 
-  const handleAskAi = () => {
+  const handleAskAi = async () => {
+    if (API_BASE) {
+      const remote = await syncMobileApiAction<{ reply?: string }>(
+        API_BASE,
+        apiToken,
+        "/api/v1/ai/chat",
+        "POST",
+        { prompt: aiQuery, lat: userLat, lng: userLng }
+      );
+      if (remote?.reply) {
+        setAiReply(remote.reply);
+        return;
+      }
+    }
     const station = resolveBanglaOrBanglishThana(aiQuery);
     setAiReply(
       `Nearest station: ${station.name_en} (${station.name_bn}) · Duty phone: ${station.phone}. Keep Safe Walk active when commuting at night.`
@@ -195,8 +296,19 @@ export default function App() {
                     accessibilityRole="button"
                     style={[styles.actionBtn, { borderColor: colors.hairline, backgroundColor: colors.surface, flex: 1 }]}
                     onPress={() => {
-                      setWalkDeadline(new Date(Date.now() - 1000).toISOString());
+                      const now = Date.now();
+                      setWalkDeadline(new Date(now - 1000).toISOString());
+                      setWalkActive(false);
                       setSosBanner("Safe Walk timeout escalated to Police Monitor.");
+                      if (API_BASE) {
+                        void syncMobileApiAction(API_BASE, apiToken, "/api/v1/sos", "POST", {
+                          lat: userLat,
+                          lng: userLng,
+                          area_name: "Dhanmondi",
+                          note: `Safe Walk timeout to ${walkTarget}`,
+                          idempotency_key: `mob-walk-manual-${now}`,
+                        });
+                      }
                     }}
                   >
                     <Text style={{ color: colors.inkPrimary, fontWeight: "600" }}>Escalate now</Text>
@@ -241,7 +353,9 @@ export default function App() {
             {/* Nearby Reports */}
             <Text style={[styles.sectionTitle, { color: colors.inkPrimary }]}>Nearby Verified Reports</Text>
             {reports.map((rep) => {
-              const check = canCorroborateIncident(rep.lat, rep.lng, userLat, userLng, false);
+              const check = canCorroborateIncident(rep.lat, rep.lng, userLat, userLng, Boolean(rep.isOwn));
+              const alreadyCorroborated = corroboratedIds.includes(rep.id);
+              const disabled = !check.allowed || alreadyCorroborated;
               return (
                 <View key={rep.id} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.hairline }]}>
                   <Text style={{ color: colors.inkPrimary, fontWeight: "700" }}>{rep.title}</Text>
@@ -250,25 +364,37 @@ export default function App() {
                   </Text>
                   <Pressable
                     accessibilityRole="button"
-                    disabled={!check.allowed}
+                    disabled={disabled}
                     style={[
                       styles.actionBtn,
                       {
                         borderColor: colors.hairline,
-                        backgroundColor: check.allowed ? colors.railMuted : colors.surface,
-                        opacity: check.allowed ? 1 : 0.55,
+                        backgroundColor: !disabled ? colors.railMuted : colors.surface,
+                        opacity: !disabled ? 1 : 0.55,
                       },
                     ]}
-                    onPress={() =>
+                    onPress={() => {
+                      setCorroboratedIds((prev) => (prev.includes(rep.id) ? prev : [...prev, rep.id]));
                       setReports((prev) =>
                         prev.map((item) =>
                           item.id === rep.id ? { ...item, corroborations: item.corroborations + 1 } : item
                         )
-                      )
-                    }
+                      );
+                      if (API_BASE) {
+                        void syncMobileApiAction(
+                          API_BASE,
+                          apiToken,
+                          `/api/v1/reports/${rep.id}/corroborate`,
+                          "POST",
+                          { user_lat: userLat, user_lng: userLng }
+                        );
+                      }
+                    }}
                   >
                     <Text style={{ color: colors.inkPrimary, fontWeight: "600" }}>
-                      {check.allowed
+                      {alreadyCorroborated
+                        ? `Corroborated (${rep.corroborations})`
+                        : check.allowed
                         ? `I saw this too (${rep.corroborations})`
                         : `Outside 1 km (${rep.corroborations})`}
                     </Text>
