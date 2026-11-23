@@ -80,3 +80,11 @@
 - **TDD RED:** Ran `uv run --project apps/api pytest` before `core.py`/`engines.py`; failed with `ModuleNotFoundError: No module named 'app'`.
 - **TDD GREEN:** Implemented `apps/api/app/core.py` (JSON log redaction, `SlidingWindowRateLimiter`, `TTLCache`) and `apps/api/app/engines.py` (`calculate_area_safety_score`, `evaluate_false_report`, `validate_corroboration`, `find_nearest_thanas`, `triage_daakai_prompt`).
 - **Verification Evidence:** `uv run --directory apps/api pytest -v` → `6 passed in 0.03s` (0 failures, 0 warnings).
+
+### Slice 3.3 (FastAPI /api/v1 Routers, Store Adapter & Integration Tests)
+- **TDD RED:** Wrote `apps/api/tests/test_api.py` and ran `uv run --directory apps/api pytest`; failed collection with `ModuleNotFoundError: No module named 'app.main'`.
+- **TDD GREEN:** Implemented `apps/api/app/schemas.py`, `apps/api/app/store.py`, and `apps/api/app/main.py` covering health probes, 1-click demo login, SOS SLA dispatch + idempotency, Safe Walk escalation, anonymity masking, 1 km corroboration, safety score/heatmap TTL caching, Bangla/Banglish DaakAI + 429 rate limiting, shift handovers, false-report moderation, criminal CRUD, and analytics.
+- **Verification Evidence:**
+  - `uv run --directory apps/api pytest -v` → `12 passed in 0.68s` (0 failures).
+  - `python tools/verify_connections.py --quick` → 4/4 `PASS`.
+  - `python tools/verify_schema_rls.py` → `PASS`.
