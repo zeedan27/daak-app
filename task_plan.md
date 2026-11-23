@@ -43,7 +43,7 @@
 ## Phase 3: O — Organization (The 3-Layer Build) — In Progress
 - [x] Read Phase 3 skills (`scope/references/stack-matrix.md`, `scope/references/caching-and-scaling.md`, `test-driven-development`, `verification-before-completion`, `requesting-code-review`, `systematic-debugging`, `supabase-postgres-best-practices`, `vercel-react-best-practices`, `impeccable/reference/craft-floor.md`)
 - [x] Author Layer 1 Architecture SOPs (`architecture/data.md`, `architecture/auth.md`, `architecture/security.md`, `architecture/rate-limiting.md`, `architecture/caching.md`)
-- [ ] **Slice 3.1:** Supabase PostGIS Schema, Default-Deny RLS, `security_invoker` Views, Storage Buckets & Bangladesh Demo Seed (`supabase/migrations/*`, `tools/verify_schema_rls.py`)
+- [x] **Slice 3.1:** Supabase PostGIS Schema, Default-Deny RLS, `security_invoker` Views, Storage Buckets & Bangladesh Demo Seed (`supabase/migrations/*`, `tools/verify_schema_rls.py`)
 - [ ] **Slice 3.2:** FastAPI Core Foundation & Deterministic Domain Engines (`apps/api/pyproject.toml`, `apps/api/app/__init__.py`, `apps/api/app/core.py`, `apps/api/app/engines.py`, `apps/api/tests/test_engines.py`)
 - [ ] **Slice 3.3:** FastAPI `/api/v1` Routers, Store Adapter & Integration Test Suite (`apps/api/app/schemas.py`, `apps/api/app/store.py`, `apps/api/app/main.py`, `apps/api/tests/test_api.py`)
 - [ ] **Mid-Phase 3 Code Review (`requesting-code-review`)** on Slices 3.1–3.3

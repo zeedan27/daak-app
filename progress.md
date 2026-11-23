@@ -61,3 +61,17 @@
 - `python tools/verify_connections.py --ci` exited `0` (all 5 checks `[PASS]`).
 - `python tools/verify_connections.py --quick` exited `0` (all 4 local checks `[PASS]`).
 - `git status` verified zero `.env` or secret files tracked/staged.
+
+---
+
+## Phase 3: Organization (2026-11-23)
+
+### Layer 1 SOPs & Slice 3.1 (Supabase PostGIS Schema, RLS, Views & Seed)
+- Authored 5 Layer 1 SOPs (`architecture/data.md`, `auth.md`, `security.md`, `rate-limiting.md`, `caching.md`) and expanded 6-slice Phase 3 plan (`7fca422`).
+- **TDD RED:** Ran `python tools/verify_schema_rls.py` prior to migrations; failed as expected (`[FAIL] Missing schema migration`, `[FAIL] Missing seed migration`).
+- **TDD GREEN:** Created `supabase/migrations/20261123000100_init_daak_schema_and_rls.sql` and `20261123000200_seed_bangladesh_demo_data.sql`; applied to live Supabase Cloud (`ygdatgpfjephccykqqsc`).
+- **Verification Evidence:**
+  - `python tools/verify_schema_rls.py` exited `0` (`[PASS] Schema, default-deny RLS, security_invoker views, triggers, and BD seed invariants verified.`).
+  - Live `execute_sql` row counts: `police_stations=8`, `profiles=3`, `reports=8`, `report_corroborations=1`, `report_tips=2`, `distress_signals=3`, `safe_walks=1`, `shift_handovers=1`, `criminals=3`, `activity_logs=2`.
+  - PostGIS nearest Thana from `(90.3760, 23.7465)` returned `Dhanmondi Model Police Station` (`188.8 m`).
+  - Live RLS & trigger `DO` test passed: `public_reports_view` masks `reporter_id` to `NULL` & `'Anonymous Citizen'` for non-owner citizens while preserving attribution for `police`; `demo.citizen` self-elevation to `admin` blocked by `trg_profiles_prevent_escalation`.
