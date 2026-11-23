@@ -1,0 +1,20 @@
+[project]
+name = "daak-api"
+version = "0.2.0"
+description = "Daak v2 FastAPI backend for Bangladesh crime reporting and emergency dispatch"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.115.12",
+  "uvicorn==0.34.0",
+  "pydantic==2.11.1",
+  "httpx==0.28.1",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.3.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

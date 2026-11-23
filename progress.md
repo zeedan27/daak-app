@@ -75,3 +75,8 @@
   - Live `execute_sql` row counts: `police_stations=8`, `profiles=3`, `reports=8`, `report_corroborations=1`, `report_tips=2`, `distress_signals=3`, `safe_walks=1`, `shift_handovers=1`, `criminals=3`, `activity_logs=2`.
   - PostGIS nearest Thana from `(90.3760, 23.7465)` returned `Dhanmondi Model Police Station` (`188.8 m`).
   - Live RLS & trigger `DO` test passed: `public_reports_view` masks `reporter_id` to `NULL` & `'Anonymous Citizen'` for non-owner citizens while preserving attribution for `police`; `demo.citizen` self-elevation to `admin` blocked by `trg_profiles_prevent_escalation`.
+
+### Slice 3.2 (FastAPI Core & Deterministic Domain Engines)
+- **TDD RED:** Ran `uv run --project apps/api pytest` before `core.py`/`engines.py`; failed with `ModuleNotFoundError: No module named 'app'`.
+- **TDD GREEN:** Implemented `apps/api/app/core.py` (JSON log redaction, `SlidingWindowRateLimiter`, `TTLCache`) and `apps/api/app/engines.py` (`calculate_area_safety_score`, `evaluate_false_report`, `validate_corroboration`, `find_nearest_thanas`, `triage_daakai_prompt`).
+- **Verification Evidence:** `uv run --directory apps/api pytest -v` → `6 passed in 0.03s` (0 failures, 0 warnings).
