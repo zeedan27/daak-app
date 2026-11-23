@@ -183,4 +183,14 @@
 | 11 | Cost caps and budget alerts set (`T1-Lite`) | **PASS** | Documented \$0 free-tier guardrails + `SlidingWindowRateLimiter` + `AI_FALLBACK_ENABLED=true` spend protection in `architecture/maintenance.md`. |
 | 12 | Staging smoke test passed via `/browser` | **PASS** | Two browser subagent passes (`b0475e5a` + full-stack `:8000`↔`:3000` `27fec84b`): CSP + 5 security headers verified, `0` console/page errors, Safe Walk escalation (`3 → 4`) and Admin moderation (`2 → 1`) persisted across `page.reload()`. |
 | 13 | Final code review completed via `requesting-code-review` | **PASS** | Two fresh-context read-only review passes (`fe011578`, `c57fef7d`) executed; all Critical & Important findings remediated and verified in `833e375`. |
-| 14 | Deployment follows Deploy Rule | **PASS** | Git-integrated `render.yaml`, `apps/web/vercel.json`, `apps/web/.vercelignore`, and `apps/mobile/eas.json` committed; `git status` clean; no local-folder upload tools used; awaiting user GitHub remote to push. |
+| 14 | Deployment follows Deploy Rule | **PASS** | Git-integrated `apps/api/Dockerfile`, `apps/api/.dockerignore`, `render.yaml`, `apps/web/vercel.json`, `apps/web/.vercelignore`, and `apps/mobile/eas.json` committed; `git status` clean; no local-folder upload tools used; awaiting GitHub remote / `gh` CLI setup to push. |
+
+### Post-Gate 2 Hosting Finalization (Vercel Hobby + Northflank Sandbox, Render Fallback)
+- **Decision (`ADR-007`):** Evaluated `0003-firecrawl-hosting-docs` and locked **Vercel Hobby** (`apps/web`) + **Northflank Sandbox** (`apps/api`, always-on via non-root `apps/api/Dockerfile` & `apps/api/.dockerignore`, keeping `render.yaml` as zero-card fallback), plus **Supabase Cloud** (`ap-south-1`) and **Expo EAS** (`apps/mobile`).
+- **Updated Docs & Runbooks:** `architecture/decisions.md` (`ADR-007`), `architecture/maintenance.md`, `findings.md`, `README.md`, and `task_plan.md`.
+- **Fresh Verification Outputs:**
+  - `uv run --directory apps/api pytest -v` → `20 passed, 1 warning in 0.68s`
+  - `npm test` → `13 passed, 0 failed` (`opsLogic.test.mts` + `citizenCore.test.mts`)
+  - `npm run typecheck` → exit `0`
+  - `npm run build` → `Next.js 16.4.6 (Turbopack)` compiled & prerendered `3/3` static routes cleanly
+  - `npm run lint` → 4/4 `PASS` (`verify_connections.py --quick`) + `PASS` (`verify_schema_rls.py`)

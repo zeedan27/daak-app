@@ -72,3 +72,16 @@
 - **Context:** Daak v2 targets Bangladesh users and needs low-latency South Asia PostgreSQL/PostGIS hosting plus an AI triage endpoint that continues working cleanly in free-tier demos even if no paid LLM key is configured.
 - **Decision:** Provisioned Supabase Cloud project `daak-v2` (`ygdatgpfjephccykqqsc`) in `ap-south-1` (Mumbai) with `postgis` (`3.3.7`) and `pg_trgm`, and paired an OpenAI-compatible AI endpoint (`AI_BASE_URL` / `AI_MODEL` / `AI_API_KEY`) with a built-in deterministic Bangla/Banglish area & nearest-Thana safety fallback.
 - **Consequences:** Sub-100ms South Asia DB/Auth proximity and guaranteed zero-cost demo uptime for DaakAI regardless of external LLM key availability.
+
+---
+
+### ADR-007: Hosting Selection — Vercel Hobby + Northflank Sandbox (with Render Free Fallback)
+- **Status:** Accepted (Phase 5)
+- **Date:** 2026-11-23
+- **Context:** Evaluated free-tier hosting options from `0003-firecrawl-hosting-docs` (Vercel Hobby, Cloudflare Pages/Workers, Netlify, Firebase Hosting, Spacefast, Northflank Sandbox, Render Free, and Railway Free) for Daak v2's `apps/web` (Next.js 16), `apps/api` (Python FastAPI), `apps/mobile` (Expo Android `.apk` + Web Preview), and Supabase Cloud (`ygdatgpfjephccykqqsc`, `ap-south-1`).
+- **Decision:**
+  - **`apps/web` → Vercel Hobby (`$0/mo`, no card):** 100 GB Fast Data Transfer, 1M invocations, 100 deploys/day, native Next.js 16 support, and security headers via `next.config.mjs` + `apps/web/vercel.json`.
+  - **`apps/api` → Northflank Sandbox (`$0/mo`, primary):** Up to `$20/mo` compute allowance (2 services, 2 jobs, 1 addon), **always-on / no sleeping** for zero cold-start SOS/Safe Walk demos, and Asia region support (`asia-southeast`) near Supabase `ap-south-1`, built via `apps/api/Dockerfile` and `apps/api/.dockerignore`. Retained **Render Free (`render.yaml`, 750 hrs/mo, no card, 15m idle sleep)** as the zero-card fallback in case Northflank requests a payment card for identity verification.
+  - **`apps/mobile` → Embedded Citizen Web Preview + Expo EAS `.apk`:** Configured via `apps/mobile/eas.json` (`preview` profile).
+  - **Database / Auth / Storage → Supabase Cloud:** Already provisioned and active in `ap-south-1`.
+- **Consequences:** Portfolio live demos avoid 60s backend cold-start stalls while preserving an immediate zero-card Render fallback without code changes.

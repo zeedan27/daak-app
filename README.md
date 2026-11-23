@@ -46,10 +46,10 @@ npm run dev:web
 
 ### Verification Suite
 ```bash
-# Backend unit & integration tests (18 tests)
+# Backend unit & integration tests (20 tests)
 uv run --directory apps/api pytest -v
 
-# Frontend & mobile logic unit tests (11 tests)
+# Frontend & mobile logic unit tests (13 tests)
 npm test
 
 # TypeScript check, production Next.js build, and connection/schema hygiene
@@ -66,7 +66,7 @@ gitleaks git --no-banner --redact
 
 ## Deployment (Git-Based — S.C.O.P.E. Deploy Rule)
 Deployment manifests and full operational runbooks live in [architecture/maintenance.md](architecture/maintenance.md):
-- **FastAPI (`apps/api`):** Render Blueprint via [render.yaml](render.yaml) (`/healthz/ready`, `--timeout-keep-alive 65`)
-- **Desktop Web (`apps/web`):** Vercel Next.js project (`Root Directory: apps/web`) using [apps/web/vercel.json](apps/web/vercel.json) and [apps/web/.vercelignore](apps/web/.vercelignore)
+- **FastAPI (`apps/api`):** Primary **Northflank Sandbox** always-on container via [apps/api/Dockerfile](apps/api/Dockerfile) + [apps/api/.dockerignore](apps/api/.dockerignore), with **Render Free Blueprint** via [render.yaml](render.yaml) kept as zero-card fallback (`/healthz/ready`, `--timeout-keep-alive 65`)
+- **Desktop Web (`apps/web`):** **Vercel Hobby** Next.js project (`Root Directory: apps/web`) using [apps/web/vercel.json](apps/web/vercel.json) and [apps/web/.vercelignore](apps/web/.vercelignore)
 - **Citizen Android APK (`apps/mobile`):** Expo EAS Build `preview` profile via [apps/mobile/eas.json](apps/mobile/eas.json)
 - **CI Pipeline:** [.github/workflows/ci.yml](.github/workflows/ci.yml) (`gitleaks`, schema/hygiene checks, `pytest`, `npm test`, `typecheck`, `build`)
