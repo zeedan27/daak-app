@@ -201,3 +201,9 @@
   - `Secret Scan (gitleaks)` — `success`
   - `Hygiene, Schema & FastAPI Pytest` — `success`
   - `Typecheck, Unit Tests & Next.js Build` — `success`
+
+### Live Cloud Deployment — Vercel Hobby (`apps/web`)
+- **Vercel Project:** `daak-v2` (`prj_Q5X9oDmAXLHqSR0SM6vOFCVLIwmW`, team `zeedan-s-team`, Root Directory `apps/web`, linked to `zeedan27/daak-app` `main`).
+- **Production URL:** `https://daak-v2.vercel.app` (deployment `dpl_6xSJajiqBX6Zgu1Rdg6RXyyux4VQ`, `READY`).
+- **Environment Variable:** `NEXT_PUBLIC_SUPABASE_URL` (`https://ygdatgpfjephccykqqsc.supabase.co`) configured for `production`, `preview`, `development`.
+- **Live HTTP Verification (`HEAD https://daak-v2.vercel.app`):** HTTP `200`, `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=()`, and `Strict-Transport-Security: max-age=63072000; includeSubDomains` verified.
