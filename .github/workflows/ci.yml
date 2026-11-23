@@ -30,3 +30,18 @@ jobs:
       - run: python tools/verify_connections.py --ci
       - run: python tools/verify_schema_rls.py
       - run: uv run --directory apps/api pytest -v
+
+  web-and-mobile:
+    name: Typecheck, Unit Tests & Next.js Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm --prefix apps/web ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build

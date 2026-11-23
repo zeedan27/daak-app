@@ -49,7 +49,7 @@
 - [x] **Mid-Phase 3 Code Review (`requesting-code-review`)** on Slices 3.1–3.3
 - [x] **Slice 3.4:** Police & Admin Desktop Web (`apps/web`) — Shell, 1-Click Demo Role Switcher & Live SOS SLA Command Deck (`<= 5` code files)
 - [x] **Slice 3.5:** Police & Admin Desktop Web (`apps/web`) — Crime Heatmap, Report Review, 5-Factor False-Report Triage, Shift Handovers & Criminal Watchlist CRUD (`<= 5` code files)
-- [ ] **Slice 3.6:** Citizen Mobile App + Expo Web Preview (`apps/mobile`) — Tactile 5s SOS Ring, Safe Walk Escort Timer, Incident Reporting + 1km Corroboration, Area Safety Score/Map & Bangla/Banglish DaakAI (`<= 5` code files)
+- [x] **Slice 3.6:** Citizen Mobile App + Expo Web Preview (`apps/mobile`) — Tactile 5s SOS Ring, Safe Walk Escort Timer, Incident Reporting + 1km Corroboration, Area Safety Score/Map & Bangla/Banglish DaakAI (`<= 5` code files)
 - [ ] **Phase 3 Checkpoint — Stop and obtain user confirmation before Phase 4**
 
 ## Phase 4: P — Polish (Refinement, UI & Quality) *(Placeholder)*

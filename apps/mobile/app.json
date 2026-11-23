@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Daak Citizen",
+    "slug": "daak-citizen",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "scheme": "daak",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "bd.daak.citizen",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "bd.daak.citizen",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Daak uses your location to attach coordinates to SOS alerts, Safe Walk timers, and 1 km incident corroborations.",
+        "NSCameraUsageDescription": "Daak uses the camera to attach optional photo evidence to crime reports."
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

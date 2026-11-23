@@ -104,3 +104,13 @@
 ### Slice 3.5 (Police & Admin 3-Zone Command Workspace + Citizen Web Preview)
 - Implemented `apps/web/src/components/SpatialMapDeck.tsx` (Dhaka PostGIS SVG/grid map + Thana stations + clickable SOS & incident clusters), `apps/web/src/components/CitizenPreviewDeck.tsx` (390×844 mobile-framed Citizen Expo Web Preview with 5s cancelable SOS ring, Safe Walk beacon, 1 km corroboration, anonymous reporting, and Bangla/Banglish DaakAI), and `apps/web/src/app/page.tsx` (3-zone command desk, 1-click Demo Role Switcher, Light/Dark theme toggle, 5-state UI switcher, collapsible Case Inspector Drawer, Shift Handovers, False-Report Queue, Criminal Watchlist CRUD, Analytics & Audit Logs).
 - **Verification Evidence:** `npm --prefix apps/web run typecheck` (`tsc --noEmit`) → exit `0`; `npm --prefix apps/web run build` (`Next.js 16.4.6`) → compiled & prerendered `/` + `/_not-found`; `node --test apps/web/tests/opsLogic.test.mts` → `4 passed, 0 failed`.
+
+### Slice 3.6 (Expo Citizen Mobile App, EAS APK Config & Full Monorepo Verification)
+- **TDD RED:** Wrote `apps/mobile/tests/citizenCore.test.mts` and ran `node --test`; failed with `ERR_MODULE_NOT_FOUND` for `citizenCore.ts`.
+- **TDD GREEN:** Created `apps/mobile/package.json`, `tsconfig.json`, `app.json`, `eas.json` (`android.buildType: "apk"` preview profile), `src/citizenCore.ts`, and `App.tsx`; updated `.gitignore` (`next-env.d.ts`) and `.github/workflows/ci.yml` (full Node + Python CI).
+- **Full Monorepo Verification Evidence:**
+  - `npm test` → `8 passed, 0 failed` (`opsLogic.test.mts` + `citizenCore.test.mts`).
+  - `npm run typecheck` (`tsc --noEmit`) → exit `0`.
+  - `npm run build` (`Next.js 16.4.6`) → compiled & prerendered `3/3` static routes cleanly.
+  - `npm run lint` (`verify_connections.py --quick && verify_schema_rls.py`) → all `PASS`.
+  - `uv run --directory apps/api pytest -v` → `17 passed in 0.79s` (0 failures).

@@ -29,6 +29,9 @@ venv/
 # Supabase Local Temp
 supabase/.temp/
 
+# Next.js Generated Env Types
+next-env.d.ts
+
 # OS & Editor Cruft
 .DS_Store
 Thumbs.db
