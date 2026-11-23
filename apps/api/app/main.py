@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,6 +19,7 @@ from app.engines import (
     calculate_area_safety_score,
     evaluate_false_report,
     find_nearest_thanas,
+    haversine_meters,
     triage_daakai_prompt,
     validate_corroboration,
 )
@@ -36,7 +38,7 @@ from app.schemas import (
     SOSCreateRequest,
     SOSDispatchRequest,
 )
-from app.store import InMemoryDaakStore
+from app.store import InMemoryDaakStore, create_default_store
 
 ALLOWED_SOS_TRANSITIONS: dict[str, set[str]] = {
     "active": {"claimed", "responding", "resolved", "false_alarm", "cancelled"},
@@ -47,22 +49,24 @@ ALLOWED_SOS_TRANSITIONS: dict[str, set[str]] = {
     "false_alarm": set(),
 }
 
+DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:8081"]
+
 app = FastAPI(title="Daak v2 API", version="0.2.0")
 
 cors_origins = [
     origin.strip()
-    for origin in os.environ.get("API_CORS_ORIGINS", "http://localhost:3000,http://localhost:8081").split(",")
+    for origin in os.environ.get("API_CORS_ORIGINS", ",".join(DEFAULT_CORS_ORIGINS)).split(",")
     if origin.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins or ["*"],
+    allow_origins=cors_origins or DEFAULT_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-_default_store = InMemoryDaakStore()
+_default_store = create_default_store()
 rate_limiter = SlidingWindowRateLimiter()
 aggregate_cache = TTLCache(ttl_seconds=30)
 
@@ -80,6 +84,11 @@ def _ok(request: Request, data: Any, extra_meta: dict[str, Any] | None = None) -
     if extra_meta:
         meta.update(extra_meta)
     return {"data": data, "meta": meta}
+
+
+def _invalidate_spatial_caches() -> None:
+    aggregate_cache.invalidate_prefix("safety:")
+    aggregate_cache.invalidate_prefix("heatmap:")
 
 
 class DaakAPIError(Exception):
@@ -125,7 +134,7 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed.",
-                "details": {"errors": exc.errors()},
+                "details": {"errors": jsonable_encoder(exc.errors())},
                 "request_id": _request_id(request),
             }
         },
@@ -155,6 +164,14 @@ def _require_roles(user: dict[str, Any], allowed: set[str]) -> None:
             f"Role '{user.get('role')}' is not authorized for this action.",
             {"required_roles": sorted(allowed)},
         )
+
+
+def _can_view_report(report: dict[str, Any], user: dict[str, Any]) -> bool:
+    if user.get("role") in {"police", "admin"}:
+        return True
+    if report.get("reporter_id") == user.get("id"):
+        return True
+    return report.get("status") in {"verified", "investigating", "resolved"}
 
 
 def _enforce_rate_limit(key: str, max_requests: int, window_seconds: int) -> None:
@@ -200,7 +217,7 @@ async def handle_http_exception(request: Request, exc: HTTPException) -> JSONRes
     )
 
 
-def _append_log(
+async def _append_log(
     store: InMemoryDaakStore,
     actor: dict[str, Any],
     action: str,
@@ -208,30 +225,29 @@ def _append_log(
     target_id: str | None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
-    store.activity_logs.insert(
-        0,
-        {
-            "id": str(uuid.uuid4()),
-            "actor_id": actor["id"],
-            "actor_role": actor["role"],
-            "action": action,
-            "target_type": target_type,
-            "target_id": target_id,
-            "metadata": metadata or {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
+    entry = {
+        "id": str(uuid.uuid4()),
+        "actor_id": actor["id"],
+        "actor_role": actor["role"],
+        "action": action,
+        "target_type": target_type,
+        "target_id": target_id,
+        "metadata": metadata or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    store.activity_logs.insert(0, entry)
+    await store.sync_insert("activity_logs", entry)
 
 
 def _serialize_public_report(report: dict[str, Any], viewer: dict[str, Any], store: InMemoryDaakStore) -> dict[str, Any]:
     is_staff = viewer.get("role") in {"police", "admin"}
     is_owner = viewer.get("id") == report.get("reporter_id")
-    mask = bool(report.get("is_anonymous_public")) and not is_staff and not is_owner
+    mask_name = bool(report.get("is_anonymous_public")) and not is_staff and not is_owner
     author_profile = store.profiles.get(report.get("reporter_id", ""), {})
     return {
         "id": report["id"],
-        "reporter_id": None if mask or not (is_staff or is_owner) else report["reporter_id"],
-        "reporter_display_name": "Anonymous Citizen" if mask else author_profile.get("full_name", "Daak Citizen"),
+        "reporter_id": report["reporter_id"] if (is_staff or is_owner) else None,
+        "reporter_display_name": "Anonymous Citizen" if mask_name else author_profile.get("full_name", "Daak Citizen"),
         "is_anonymous_public": report["is_anonymous_public"],
         "category": report["category"],
         "severity": report["severity"],
@@ -263,14 +279,20 @@ async def health_live(request: Request) -> dict[str, Any]:
 
 
 @app.get("/healthz/ready")
-async def health_ready(request: Request, store: InMemoryDaakStore = Depends(get_store)) -> dict[str, Any]:
-    return _ok(
-        request,
-        {
-            "status": "ready",
-            "stations_loaded": len(store.police_stations),
-            "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
-        },
+async def health_ready(request: Request, store: InMemoryDaakStore = Depends(get_store)) -> JSONResponse:
+    db_ok = await store.check_readiness()
+    status_code = 200 if db_ok else 503
+    return JSONResponse(
+        status_code=status_code,
+        content=_ok(
+            request,
+            {
+                "status": "ready" if db_ok else "unavailable",
+                "stations_loaded": len(store.police_stations),
+                "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
+            },
+        ),
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
@@ -325,8 +347,9 @@ async def create_sos(
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
     _enforce_rate_limit(f"{user['id']}:sos", max_requests=10, window_seconds=60)
-    if body.idempotency_key and body.idempotency_key in store.sos_idempotency:
-        return _ok(request, store.sos_idempotency[body.idempotency_key], {"idempotent_replay": True})
+    scoped_idem_key = f"{user['id']}:{body.idempotency_key}" if body.idempotency_key else None
+    if scoped_idem_key and scoped_idem_key in store.sos_idempotency:
+        return _ok(request, store.sos_idempotency[scoped_idem_key], {"idempotent_replay": True})
 
     nearest = find_nearest_thanas(store.police_stations, lat=body.lat, lng=body.lng, query=body.area_name, limit=1)
     thana = nearest[0] if nearest else None
@@ -342,6 +365,7 @@ async def create_sos(
         "area_name": area_label,
         "battery_level": body.battery_level,
         "note": body.note,
+        "idempotency_key": body.idempotency_key,
         "status": "active",
         "claimed_by": None,
         "assigned_unit": None,
@@ -359,9 +383,11 @@ async def create_sos(
         ],
     }
     store.distress_signals.insert(0, sos_record)
-    if body.idempotency_key:
-        store.sos_idempotency[body.idempotency_key] = sos_record
-    _append_log(store, user, "sos.triggered", "distress_signals", sos_record["id"], {"area_name": area_label})
+    if scoped_idem_key:
+        store.sos_idempotency[scoped_idem_key] = sos_record
+    _invalidate_spatial_caches()
+    await store.sync_insert("distress_signals", sos_record)
+    await _append_log(store, user, "sos.triggered", "distress_signals", sos_record["id"], {"area_name": area_label})
     print(emit_json_log("sos.triggered", _request_id(request), {"sos_id": sos_record["id"], "area": area_label}))
     return _ok(request, sos_record)
 
@@ -383,7 +409,13 @@ async def cancel_sos(
     sig["status"] = "cancelled"
     sig["resolved_at"] = datetime.now(timezone.utc).isoformat()
     sig["dispatch_timeline"].append({"at": sig["resolved_at"], "status": "cancelled", "note": "Cancelled by citizen"})
-    _append_log(store, user, "sos.cancelled", "distress_signals", sos_id)
+    _invalidate_spatial_caches()
+    await store.sync_update(
+        "distress_signals",
+        sos_id,
+        {"status": "cancelled", "resolved_at": sig["resolved_at"], "dispatch_timeline": sig["dispatch_timeline"]},
+    )
+    await _append_log(store, user, "sos.cancelled", "distress_signals", sos_id)
     return _ok(request, sig)
 
 
@@ -418,6 +450,7 @@ async def dispatch_sos(
         citizen = store.profiles.get(sig["user_id"])
         if citizen:
             citizen["credibility_score"] = max(0, int(citizen["credibility_score"]) - 10)
+            await store.sync_update("profiles", citizen["id"], {"credibility_score": citizen["credibility_score"]})
     sig["dispatch_timeline"].append(
         {
             "at": now_iso,
@@ -425,7 +458,20 @@ async def dispatch_sos(
             "note": body.note or f"Updated to {body.status} by {user['full_name']}",
         }
     )
-    _append_log(store, user, f"sos.{body.status}", "distress_signals", sos_id, {"assigned_unit": sig.get("assigned_unit")})
+    _invalidate_spatial_caches()
+    await store.sync_update(
+        "distress_signals",
+        sos_id,
+        {
+            "status": sig["status"],
+            "claimed_by": sig.get("claimed_by"),
+            "claimed_at": sig.get("claimed_at"),
+            "assigned_unit": sig.get("assigned_unit"),
+            "resolved_at": sig.get("resolved_at"),
+            "dispatch_timeline": sig["dispatch_timeline"],
+        },
+    )
+    await _append_log(store, user, f"sos.{body.status}", "distress_signals", sos_id, {"assigned_unit": sig.get("assigned_unit")})
     return _ok(request, sig)
 
 
@@ -471,7 +517,8 @@ async def start_safe_walk(
         "created_at": now.isoformat(),
     }
     store.safe_walks.insert(0, walk)
-    _append_log(store, user, "safe_walk.started", "safe_walks", walk["id"], {"destination": body.destination_name})
+    await store.sync_insert("safe_walks", walk)
+    await _append_log(store, user, "safe_walk.started", "safe_walks", walk["id"], {"destination": body.destination_name})
     return _ok(request, walk)
 
 
@@ -498,9 +545,23 @@ async def checkin_safe_walk(
     elif body.action == "cancel":
         walk["status"] = "cancelled"
     else:
+        now_dt = datetime.now(timezone.utc)
+        current_eta = datetime.fromisoformat(str(walk["expected_arrival_at"]).replace("Z", "+00:00"))
+        if current_eta.tzinfo is None:
+            current_eta = current_eta.replace(tzinfo=timezone.utc)
         walk["expected_arrival_at"] = (
-            datetime.now(timezone.utc) + timedelta(minutes=body.extend_minutes)
+            max(now_dt, current_eta) + timedelta(minutes=body.extend_minutes)
         ).isoformat()
+    await store.sync_update(
+        "safe_walks",
+        walk_id,
+        {
+            "status": walk["status"],
+            "expected_arrival_at": walk["expected_arrival_at"],
+            "lat": walk["lat"],
+            "lng": walk["lng"],
+        },
+    )
     return _ok(request, walk)
 
 
@@ -550,7 +611,10 @@ async def escalate_safe_walk(
     store.distress_signals.insert(0, sos_record)
     walk["status"] = "escalated"
     walk["escalated_sos_id"] = sos_record["id"]
-    _append_log(store, user, "safe_walk.escalated", "safe_walks", walk_id, {"sos_id": sos_record["id"]})
+    _invalidate_spatial_caches()
+    await store.sync_insert("distress_signals", sos_record)
+    await store.sync_update("safe_walks", walk_id, {"status": "escalated", "escalated_sos_id": sos_record["id"]})
+    await _append_log(store, user, "safe_walk.escalated", "safe_walks", walk_id, {"sos_id": sos_record["id"]})
     return _ok(request, {"safe_walk": walk, "distress_signal": sos_record})
 
 
@@ -566,10 +630,9 @@ async def list_reports(
     user: dict[str, Any] = Depends(get_current_user),
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
-    is_staff = user["role"] in {"police", "admin"}
     visible = []
     for report in store.reports:
-        if not is_staff and report["status"] not in {"verified", "investigating", "resolved"} and report["reporter_id"] != user["id"]:
+        if not _can_view_report(report, user):
             continue
         if area and area.lower() not in report["area_name"].lower():
             continue
@@ -614,9 +677,9 @@ async def create_report(
     candidate["flag_status"] = heuristic["flag_status"]
     candidate["suspicion_reasons"] = heuristic["reasons"]
     store.reports.insert(0, candidate)
-    aggregate_cache.invalidate_prefix("safety:")
-    aggregate_cache.invalidate_prefix("heatmap:")
-    _append_log(store, user, "report.submitted", "reports", candidate["id"], {"flag_status": candidate["flag_status"]})
+    _invalidate_spatial_caches()
+    await store.sync_insert("reports", candidate)
+    await _append_log(store, user, "report.submitted", "reports", candidate["id"], {"flag_status": candidate["flag_status"]})
     return _ok(request, _serialize_public_report(candidate, user, store))
 
 
@@ -629,7 +692,7 @@ async def corroborate_report(
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
     report = next((r for r in store.reports if r["id"] == report_id), None)
-    if not report:
+    if not report or not _can_view_report(report, user):
         raise DaakAPIError(404, "RESOURCE_NOT_FOUND", "Report not found.")
 
     existing_users = {c["user_id"] for c in store.corroborations if c["report_id"] == report_id}
@@ -652,16 +715,17 @@ async def corroborate_report(
             {"distance_meters": distance, "max_meters": 1000},
         )
 
-    store.corroborations.append(
-        {
-            "id": str(uuid.uuid4()),
-            "report_id": report_id,
-            "user_id": user["id"],
-            "distance_meters": distance,
-            "note": body.note,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+    corr_record = {
+        "id": str(uuid.uuid4()),
+        "report_id": report_id,
+        "user_id": user["id"],
+        "user_lat": body.user_lat,
+        "user_lng": body.user_lng,
+        "distance_meters": distance,
+        "note": body.note,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    store.corroborations.append(corr_record)
     report["corroboration_count"] = int(report["corroboration_count"]) + 1
     recheck = evaluate_false_report(
         candidate=report,
@@ -672,8 +736,18 @@ async def corroborate_report(
     report["suspicion_score"] = recheck["suspicion_score"]
     if report["suspicion_score"] < 50 and report["flag_status"] == "flagged":
         report["flag_status"] = "none"
-    aggregate_cache.invalidate_prefix("safety:")
-    _append_log(store, user, "report.corroborated", "reports", report_id, {"distance_meters": distance})
+    _invalidate_spatial_caches()
+    await store.sync_insert("report_corroborations", corr_record)
+    await store.sync_update(
+        "reports",
+        report_id,
+        {
+            "corroboration_count": report["corroboration_count"],
+            "suspicion_score": report["suspicion_score"],
+            "flag_status": report["flag_status"],
+        },
+    )
+    await _append_log(store, user, "report.corroborated", "reports", report_id, {"distance_meters": distance})
     return _ok(
         request,
         {
@@ -691,20 +765,24 @@ async def list_report_tips(
     user: dict[str, Any] = Depends(get_current_user),
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
+    report = next((r for r in store.reports if r["id"] == report_id), None)
+    if not report or not _can_view_report(report, user):
+        raise DaakAPIError(404, "RESOURCE_NOT_FOUND", "Report not found.")
+
     is_staff = user["role"] in {"police", "admin"}
     items = []
     for tip in store.tips:
         if tip["report_id"] != report_id:
             continue
         is_owner = tip["author_id"] == user["id"]
-        mask = bool(tip.get("is_anonymous_public")) and not is_staff and not is_owner
+        mask_name = bool(tip.get("is_anonymous_public")) and not is_staff and not is_owner
         author = store.profiles.get(tip["author_id"], {})
         items.append(
             {
                 "id": tip["id"],
                 "report_id": tip["report_id"],
-                "author_id": None if mask or not (is_staff or is_owner) else tip["author_id"],
-                "author_display_name": "Anonymous Citizen" if mask else author.get("full_name", "Daak Citizen"),
+                "author_id": tip["author_id"] if (is_staff or is_owner) else None,
+                "author_display_name": "Anonymous Citizen" if mask_name else author.get("full_name", "Daak Citizen"),
                 "is_anonymous_public": tip["is_anonymous_public"],
                 "body": tip["body"],
                 "created_at": tip["created_at"],
@@ -721,7 +799,8 @@ async def create_report_tip(
     user: dict[str, Any] = Depends(get_current_user),
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
-    if not any(r["id"] == report_id for r in store.reports):
+    report = next((r for r in store.reports if r["id"] == report_id), None)
+    if not report or not _can_view_report(report, user):
         raise DaakAPIError(404, "RESOURCE_NOT_FOUND", "Report not found.")
     tip = {
         "id": str(uuid.uuid4()),
@@ -732,6 +811,7 @@ async def create_report_tip(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     store.tips.append(tip)
+    await store.sync_insert("report_tips", tip)
     return _ok(request, tip)
 
 
@@ -745,14 +825,36 @@ async def get_safety_score(
     request: Request,
     response: Response,
     area: str = Query(default="Dhanmondi"),
+    lat: float | None = Query(default=None, ge=-90.0, le=90.0),
+    lng: float | None = Query(default=None, ge=-180.0, le=180.0),
+    radius_m: float = Query(default=3000.0, ge=250.0, le=50000.0),
     user: dict[str, Any] = Depends(get_current_user),
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
-    cache_key = f"safety:{area.lower()}"
+    if lat is not None and lng is not None:
+        cache_key = f"safety:geo:{lat:.4f}:{lng:.4f}:{int(radius_m)}"
+    else:
+        cache_key = f"safety:area:{area.lower()}"
+
     cached = aggregate_cache.get(cache_key)
     if cached is None:
-        area_reports = [r for r in store.reports if area.lower().split("-")[0] in r["area_name"].lower()]
-        cached = calculate_area_safety_score(area, area_reports)
+        if lat is not None and lng is not None:
+            area_reports = [
+                r
+                for r in store.reports
+                if r.get("flag_status") not in {"flagged", "confirmed_false"}
+                and haversine_meters(lat, lng, float(r["lat"]), float(r["lng"])) <= radius_m
+            ]
+            label = f"Within {round(radius_m / 1000, 1)} km"
+            cached = calculate_area_safety_score(label, area_reports)
+        else:
+            area_reports = [
+                r
+                for r in store.reports
+                if r.get("flag_status") not in {"flagged", "confirmed_false"}
+                and area.lower().split("-")[0] in r["area_name"].lower()
+            ]
+            cached = calculate_area_safety_score(area, area_reports)
         aggregate_cache.set(cache_key, cached)
     response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=60"
     response.headers["Vary"] = "Accept-Encoding"
@@ -764,22 +866,35 @@ async def get_heatmap(
     request: Request,
     response: Response,
     category: str | None = Query(default=None),
+    hours: int | None = Query(default=None, ge=1, le=720),
+    include_sos: bool = Query(default=False),
     user: dict[str, Any] = Depends(get_current_user),
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
-    cache_key = f"heatmap:{(category or 'all').lower()}"
+    is_staff = user["role"] in {"police", "admin"}
+    cache_key = f"heatmap:{'staff' if is_staff else 'pub'}:{(category or 'all').lower()}:{hours or 'all'}:{int(include_sos)}"
     cached = aggregate_cache.get(cache_key)
     if cached is None:
         severity_weight = {"low": 0.35, "medium": 0.6, "high": 0.85, "critical": 1.0}
+        cutoff_dt = (datetime.now(timezone.utc) - timedelta(hours=hours)) if hours else None
         points = []
         for report in store.reports:
-            if report["status"] == "rejected":
+            if report["status"] == "rejected" or report.get("flag_status") in {"flagged", "confirmed_false"}:
+                continue
+            if not is_staff and report["status"] == "pending":
                 continue
             if category and report["category"] != category:
                 continue
+            if cutoff_dt:
+                rep_dt = datetime.fromisoformat(str(report["occurred_at"]).replace("Z", "+00:00"))
+                if rep_dt.tzinfo is None:
+                    rep_dt = rep_dt.replace(tzinfo=timezone.utc)
+                if rep_dt < cutoff_dt:
+                    continue
             points.append(
                 {
                     "id": report["id"],
+                    "kind": "report",
                     "lat": report["lat"],
                     "lng": report["lng"],
                     "area_name": report["area_name"],
@@ -789,6 +904,22 @@ async def get_heatmap(
                     "status": report["status"],
                 }
             )
+        if include_sos and is_staff:
+            for sos in store.distress_signals:
+                if sos["status"] in {"active", "claimed", "responding"}:
+                    points.append(
+                        {
+                            "id": sos["id"],
+                            "kind": "sos",
+                            "lat": sos["lat"],
+                            "lng": sos["lng"],
+                            "area_name": sos.get("area_name") or "Dhaka",
+                            "category": "sos",
+                            "severity": "critical",
+                            "weight": 1.0,
+                            "status": sos["status"],
+                        }
+                    )
         cached = {"points": points, "total": len(points)}
         aggregate_cache.set(cache_key, cached)
     response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=60"
@@ -901,7 +1032,8 @@ async def create_handover(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     store.shift_handovers.insert(0, record)
-    _append_log(store, user, "police.handover_created", "shift_handovers", record["id"])
+    await store.sync_insert("shift_handovers", record)
+    await _append_log(store, user, "police.handover_created", "shift_handovers", record["id"])
     return _ok(request, record)
 
 
@@ -935,10 +1067,12 @@ async def create_criminal(
         "last_known_area": body.last_known_area,
         "status": body.status,
         "details": body.details,
+        "created_by": user["id"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     store.criminals.insert(0, record)
-    _append_log(store, user, "criminal.created", "criminals", record["id"], {"full_name": body.full_name})
+    await store.sync_insert("criminals", record)
+    await _append_log(store, user, "criminal.created", "criminals", record["id"], {"full_name": body.full_name})
     return _ok(request, record)
 
 
@@ -954,9 +1088,11 @@ async def update_criminal(
     record = next((c for c in store.criminals if c["id"] == criminal_id), None)
     if not record:
         raise DaakAPIError(404, "RESOURCE_NOT_FOUND", "Watchlist record not found.")
-    for field, val in body.model_dump(exclude_none=True).items():
+    updates = body.model_dump(exclude_none=True)
+    for field, val in updates.items():
         record[field] = val
-    _append_log(store, user, "criminal.updated", "criminals", criminal_id)
+    await store.sync_update("criminals", criminal_id, updates)
+    await _append_log(store, user, "criminal.updated", "criminals", criminal_id)
     return _ok(request, record)
 
 
@@ -972,7 +1108,8 @@ async def delete_criminal(
     if idx is None:
         raise DaakAPIError(404, "RESOURCE_NOT_FOUND", "Watchlist record not found.")
     removed = store.criminals.pop(idx)
-    _append_log(store, user, "criminal.deleted", "criminals", criminal_id)
+    await store.sync_delete("criminals", criminal_id)
+    await _append_log(store, user, "criminal.deleted", "criminals", criminal_id)
     return _ok(request, {"deleted_id": removed["id"]})
 
 
@@ -1001,24 +1138,39 @@ async def moderate_report(
     store: InMemoryDaakStore = Depends(get_store),
 ) -> dict[str, Any]:
     _require_roles(user, {"police", "admin"})
+    if body.flag_status is not None:
+        _require_roles(user, {"admin"})
+
     report = next((r for r in store.reports if r["id"] == report_id), None)
     if not report:
         raise DaakAPIError(404, "RESOURCE_NOT_FOUND", "Report not found.")
+
+    previous_flag = report.get("flag_status")
     if body.status is not None:
         report["status"] = body.status
     if body.flag_status is not None:
-        _require_roles(user, {"admin"})
         report["flag_status"] = body.flag_status
         if body.flag_status == "confirmed_false":
             report["status"] = "rejected"
-            reporter = store.profiles.get(report["reporter_id"])
-            if reporter:
-                reporter["credibility_score"] = max(0, int(reporter["credibility_score"]) - 15)
+            if previous_flag != "confirmed_false":
+                reporter = store.profiles.get(report["reporter_id"])
+                if reporter:
+                    reporter["credibility_score"] = max(0, int(reporter["credibility_score"]) - 15)
+                    await store.sync_update("profiles", reporter["id"], {"credibility_score": reporter["credibility_score"]})
     if body.moderation_note is not None:
         report["moderation_note"] = body.moderation_note
-    aggregate_cache.invalidate_prefix("safety:")
-    aggregate_cache.invalidate_prefix("heatmap:")
-    _append_log(store, user, "report.moderated", "reports", report_id, {"status": report["status"], "flag_status": report["flag_status"]})
+
+    _invalidate_spatial_caches()
+    await store.sync_update(
+        "reports",
+        report_id,
+        {
+            "status": report["status"],
+            "flag_status": report["flag_status"],
+            "moderation_note": report.get("moderation_note"),
+        },
+    )
+    await _append_log(store, user, "report.moderated", "reports", report_id, {"status": report["status"], "flag_status": report["flag_status"]})
     return _ok(request, _serialize_public_report(report, user, store))
 
 

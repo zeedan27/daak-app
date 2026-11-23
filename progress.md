@@ -88,3 +88,10 @@
   - `uv run --directory apps/api pytest -v` → `12 passed in 0.68s` (0 failures).
   - `python tools/verify_connections.py --quick` → 4/4 `PASS`.
   - `python tools/verify_schema_rls.py` → `PASS`.
+
+### Mid-Phase 3 Code Review (`requesting-code-review`) & Remediation
+- Dispatched fresh-context reviewer subagent (`2bb8ca8a-ba4a-4920-bed6-736e09553be7`) over `22bb5e8..02f75b7`; verdict: `With fixes` (2 Critical, 6 Important, 5 Minor).
+- **Fixed all Critical, Important & Minor items:**
+  - Applied `supabase/migrations/20261123000300_security_hardening_and_indexes.sql` to live Supabase Cloud (`ygdatgpfjephccykqqsc`): masked `reporter_id`/`author_id` for non-owner citizens in `public_reports_view` & `public_tips_view`, locked direct `report_corroborations` client inserts, added 5 missing FK indexes + user-scoped `idempotency_key` index on `distress_signals`, set `criminal-photos` private, and added `evidence-media` admin delete policy.
+  - Added `SupabaseDaakStore` (`apps/api/app/store.py`) with `public.profiles` role lookup, live PostgREST readiness probe (`/healthz/ready`), and persistence sync; scoped SOS idempotency by `user_id`; made `moderate_report` atomic & credibility-idempotent; enforced report visibility on tips/corroboration; fixed Safe Walk `extend` and spatial cache invalidations; filtered spam from `/heatmap` and added `(lat, lng, radius_m)` support to `/safety-score`.
+- **Verification Evidence:** `uv run --directory apps/api pytest -v` → `17 passed in 0.70s` (0 failures); `verify_schema_rls.py` & `verify_connections.py --quick` → all `PASS`.

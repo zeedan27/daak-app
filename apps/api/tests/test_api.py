@@ -297,3 +297,201 @@ def test_admin_and_police_privileged_endpoints_and_role_guards(client: TestClien
     analytics = client.get("/api/v1/admin/analytics", headers=admin_hdr)
     assert analytics.status_code == 200
     assert analytics.json()["data"]["total_reports"] >= 8
+
+
+def test_cross_user_sos_idempotency_isolation(client: TestClient) -> None:
+    citizen_hdr = _auth_header(client, "citizen")
+    police_hdr = _auth_header(client, "police")
+
+    c_res = client.post(
+        "/api/v1/sos",
+        json={"lat": 23.7465, "lng": 90.3760, "area_name": "Dhanmondi", "idempotency_key": "shared-key"},
+        headers=citizen_hdr,
+    )
+    p_res = client.post(
+        "/api/v1/sos",
+        json={"lat": 23.8069, "lng": 90.3688, "area_name": "Mirpur-10", "idempotency_key": "shared-key"},
+        headers=police_hdr,
+    )
+    assert c_res.status_code == 201
+    assert p_res.status_code == 201
+    assert c_res.json()["data"]["id"] != p_res.json()["data"]["id"]
+    assert p_res.json()["data"]["area_name"] == "Mirpur-10"
+
+
+def test_moderate_report_atomicity_and_idempotent_credibility_penalty(client: TestClient) -> None:
+    citizen_hdr = _auth_header(client, "citizen")
+    police_hdr = _auth_header(client, "police")
+    admin_hdr = _auth_header(client, "admin")
+
+    store = app.dependency_overrides[get_store]()
+    initial_cred = store.profiles["11111111-1111-4111-8111-111111111101"]["credibility_score"]
+
+    created = client.post(
+        "/api/v1/reports",
+        json={
+            "category": "vandalism",
+            "severity": "low",
+            "title": "test free reward http://bit.ly/spam2",
+            "description": "test",
+            "area_name": "Mohammadpur",
+            "lat": 23.7638,
+            "lng": 90.3636,
+        },
+        headers=citizen_hdr,
+    )
+    assert created.status_code == 201
+    rep_id = created.json()["data"]["id"]
+    assert store.reports[0]["flag_status"] == "flagged"
+
+    # Police attempting both status + flag_status must fail 403 WITHOUT mutating status
+    police_attempt = client.patch(
+        f"/api/v1/admin/reports/{rep_id}/moderate",
+        json={"status": "verified", "flag_status": "confirmed_false"},
+        headers=police_hdr,
+    )
+    assert police_attempt.status_code == 403
+    assert store.reports[0]["status"] == "pending"
+
+    # Admin confirms false twice -> credibility drops only once (-15)
+    admin_1 = client.patch(
+        f"/api/v1/admin/reports/{rep_id}/moderate",
+        json={"flag_status": "confirmed_false"},
+        headers=admin_hdr,
+    )
+    assert admin_1.status_code == 200
+    assert store.profiles["11111111-1111-4111-8111-111111111101"]["credibility_score"] == initial_cred - 15
+
+    admin_2 = client.patch(
+        f"/api/v1/admin/reports/{rep_id}/moderate",
+        json={"flag_status": "confirmed_false"},
+        headers=admin_hdr,
+    )
+    assert admin_2.status_code == 200
+    assert store.profiles["11111111-1111-4111-8111-111111111101"]["credibility_score"] == initial_cred - 15
+
+
+def test_non_anon_reporter_id_hidden_and_rejected_report_hidden_on_tips_corroboration(client: TestClient) -> None:
+    citizen_hdr = _auth_header(client, "citizen")
+    police_hdr = _auth_header(client, "police")
+
+    created = client.post(
+        "/api/v1/reports",
+        json={
+            "category": "theft",
+            "severity": "medium",
+            "title": "Public non-anonymous patrol report",
+            "description": "Bicycle theft observed near Dhanmondi Lake bridge.",
+            "area_name": "Dhanmondi",
+            "lat": 23.7465,
+            "lng": 90.3760,
+            "is_anonymous_public": False,
+        },
+        headers=police_hdr,
+    )
+    rep_id = created.json()["data"]["id"]
+    client.patch(f"/api/v1/admin/reports/{rep_id}/moderate", json={"status": "verified"}, headers=police_hdr)
+
+    feed = client.get("/api/v1/reports", headers=citizen_hdr).json()["data"]
+    item = next(r for r in feed if r["id"] == rep_id)
+    assert item["reporter_id"] is None
+    assert item["reporter_display_name"] == "SI Tariqul Islam"
+
+    # Reject report -> citizen cannot view tips, post tips, or corroborate
+    client.patch(f"/api/v1/admin/reports/{rep_id}/moderate", json={"status": "rejected"}, headers=police_hdr)
+    assert client.get(f"/api/v1/reports/{rep_id}/tips", headers=citizen_hdr).status_code == 404
+    assert client.post(f"/api/v1/reports/{rep_id}/tips", json={"body": "tip"}, headers=citizen_hdr).status_code == 404
+    assert (
+        client.post(
+            f"/api/v1/reports/{rep_id}/corroborate",
+            json={"user_lat": 23.7465, "user_lng": 90.3760},
+            headers=citizen_hdr,
+        ).status_code
+        == 404
+    )
+
+
+def test_safe_walk_extend_preserves_remaining_time_and_heatmap_filters_spam(client: TestClient) -> None:
+    from datetime import datetime, timezone
+
+    citizen_hdr = _auth_header(client, "citizen")
+    walk = client.post(
+        "/api/v1/safe-walks",
+        json={"destination_name": "Farmgate", "lat": 23.75, "lng": 90.38, "eta_minutes": 30},
+        headers=citizen_hdr,
+    ).json()["data"]
+    orig_eta = datetime.fromisoformat(walk["expected_arrival_at"])
+    ext = client.patch(
+        f"/api/v1/safe-walks/{walk['id']}/checkin",
+        json={"action": "extend", "extend_minutes": 10},
+        headers=citizen_hdr,
+    )
+    assert ext.status_code == 200
+    new_eta = datetime.fromisoformat(ext.json()["data"]["expected_arrival_at"])
+    assert (new_eta - orig_eta).total_seconds() >= 590
+
+    # Heatmap excludes flagged spam reports (3333...07, 3333...08)
+    heatmap = client.get("/api/v1/heatmap", headers=citizen_hdr).json()["data"]
+    ids = {p["id"] for p in heatmap["points"]}
+    assert "33333333-3333-4333-8333-333333333307" not in ids
+    assert "33333333-3333-4333-8333-333333333308" not in ids
+
+    # Radius-based safety score works
+    rad_score = client.get("/api/v1/safety-score?lat=23.7495&lng=90.3806&radius_m=2000", headers=citizen_hdr)
+    assert rad_score.status_code == 200
+    assert rad_score.json()["data"]["report_count"] >= 1
+
+
+def test_demo_mode_disabled_criminal_visibility_and_supabase_store_contract(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+    from app.store import SupabaseDaakStore
+
+    admin_hdr = _auth_header(client, "admin")
+    citizen_hdr = _auth_header(client, "citizen")
+    police_hdr = _auth_header(client, "police")
+
+    # Archived criminal hidden from citizen, visible to admin
+    arch = client.post(
+        "/api/v1/admin/criminals",
+        json={"full_name": "Archived Person", "last_known_area": "Dhaka", "status": "archived"},
+        headers=admin_hdr,
+    ).json()["data"]
+    assert all(c["id"] != arch["id"] for c in client.get("/api/v1/criminals", headers=citizen_hdr).json()["data"])
+    assert any(c["id"] == arch["id"] for c in client.get("/api/v1/criminals", headers=admin_hdr).json()["data"])
+
+    # Police sees only own logs; admin sees all
+    p_logs = client.get("/api/v1/admin/logs", headers=police_hdr).json()["data"]
+    a_logs = client.get("/api/v1/admin/logs", headers=admin_hdr).json()["data"]
+    assert all(l["actor_id"] == "11111111-1111-4111-8111-111111111102" for l in p_logs)
+    assert len(a_logs) >= len(p_logs)
+
+    # DEMO_MODE=false blocks demo login
+    monkeypatch.setenv("DEMO_MODE", "false")
+    disabled = client.post("/api/v1/auth/demo-login", json={"role": "citizen"})
+    assert disabled.status_code == 403
+    assert disabled.json()["error"]["code"] == "DEMO_MODE_DISABLED"
+    monkeypatch.setenv("DEMO_MODE", "true")
+
+    # SupabaseDaakStore resolves role from public.profiles (never user_metadata) and checks DB readiness
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/auth/v1/user":
+            return httpx.Response(200, json={"id": "real-uid-1", "email": "officer@bd.gov", "user_metadata": {"role": "admin"}})
+        if req.url.path == "/rest/v1/profiles":
+            return httpx.Response(200, json=[{"id": "real-uid-1", "full_name": "Inspector Karim", "role": "police", "credibility_score": 95}])
+        if req.url.path == "/rest/v1/police_stations":
+            return httpx.Response(200, json=[{"id": "22222222-2222-4222-8222-222222222201"}])
+        return httpx.Response(200, json=[])
+
+    sb_store = SupabaseDaakStore(
+        supabase_url="https://example.supabase.co",
+        anon_key="pub-key",
+        service_role_key="srv-key",
+        transport=httpx.MockTransport(handler),
+    )
+    import asyncio
+    resolved = asyncio.run(sb_store.resolve_user_from_token("real-jwt"))
+    assert resolved is not None
+    assert resolved["role"] == "police"
+    assert resolved["full_name"] == "Inspector Karim"
+    assert asyncio.run(sb_store.check_readiness()) is True
+

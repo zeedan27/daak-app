@@ -10,7 +10,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any
 
-_SENSITIVE_KEY_PARTS = ("SECRET", "TOKEN", "PASSWORD", "API_KEY", "AUTHORIZATION", "SERVICE_ROLE")
+_SENSITIVE_KEY_PARTS = ("SECRET", "TOKEN", "PASSWORD", "API_KEY", "APIKEY", "AUTHORIZATION", "SERVICE_ROLE")
 _TOKEN_PATTERN = re.compile(
     r"(Bearer\s+)[A-Za-z0-9._\-]+|(sb_(?:secret|publishable)_[A-Za-z0-9._\-]+)|(sk-[A-Za-z0-9._\-]+)|(eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)",
     re.IGNORECASE,
@@ -67,10 +67,18 @@ class SlidingWindowRateLimiter:
         bucket = self._buckets[key]
         while bucket and bucket[0] <= cutoff:
             bucket.popleft()
+        if not bucket:
+            self._buckets.pop(key, None)
+            bucket = self._buckets[key]
         if len(bucket) >= max_requests:
             retry_after = max(1, math.ceil(bucket[0] + window_seconds - current))
             return False, retry_after
         bucket.append(current)
+        # Prune other stale empty keys periodically to prevent unbounded growth
+        if len(self._buckets) > 1000:
+            stale_keys = [k for k, q in self._buckets.items() if not q or q[-1] <= cutoff]
+            for stale_key in stale_keys:
+                self._buckets.pop(stale_key, None)
         return True, 0
 
     def reset(self) -> None:

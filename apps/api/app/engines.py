@@ -47,7 +47,8 @@ def haversine_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> floa
     d_phi = math.radians(lat2 - lat1)
     d_lam = math.radians(lng2 - lng1)
     a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
-    return round(2 * earth_radius_m * math.atan2(math.sqrt(a), math.sqrt(1 - a)), 2)
+    a = min(1.0, max(0.0, a))
+    return round(2 * earth_radius_m * math.atan2(math.sqrt(a), math.sqrt(1.0 - a)), 2)
 
 
 def _parse_dt(value: Any) -> datetime:
@@ -142,7 +143,9 @@ def evaluate_false_report(
         if item.get("id") == candidate.get("id"):
             continue
         item_dt = _parse_dt(item.get("created_at"))
-        delta_min = abs((cand_dt - item_dt).total_seconds()) / 60.0
+        if item_dt > cand_dt:
+            continue
+        delta_min = (cand_dt - item_dt).total_seconds() / 60.0
         if item.get("reporter_id") == reporter_id and delta_min <= 30.0:
             rapid_hits += 1
         if item.get("category") == candidate.get("category") and delta_min <= 60.0:
@@ -182,12 +185,14 @@ def evaluate_false_report(
         reasons.append("Suspicious promotional link or test keyword detected")
 
     weighted = (
-        user_suspicion * 0.20
+        user_suspicion * 0.15
         + duplicate_score * 0.25
         + rapid_score * 0.20
         + min(100, detail_score) * 0.15
-        + content_score * 0.20
+        + content_score * 0.25
     )
+    if content_hits >= 2:
+        weighted = max(weighted, 55.0)
 
     # Community corroboration trust discount
     trust_discount = min(30, corroboration_count * 10)
@@ -305,7 +310,8 @@ def triage_daakai_prompt(
         "phone": "999",
         "distance_meters": None,
     }
-    area_label = matched_area or nearest.get("district", "Dhaka Metro")
+    fallback_alias = (nearest.get("aliases") or [nearest.get("district", "Dhaka Metro")])[0]
+    area_label = matched_area or str(fallback_alias).title()
 
     area_lower = area_label.lower().split("-")[0]
     local_reports = [

@@ -527,38 +527,167 @@ class InMemoryDaakStore:
 
         self.sos_idempotency: dict[str, dict[str, Any]] = {}
 
+    async def check_readiness(self) -> bool:
+        """Verify store health."""
+        return len(self.police_stations) > 0
+
+    async def sync_insert(self, table: str, payload: dict[str, Any]) -> None:
+        """No-op hook overridden by SupabaseDaakStore."""
+        return None
+
+    async def sync_update(self, table: str, record_id: str, payload: dict[str, Any]) -> None:
+        """No-op hook overridden by SupabaseDaakStore."""
+        return None
+
+    async def sync_delete(self, table: str, record_id: str) -> None:
+        """No-op hook overridden by SupabaseDaakStore."""
+        return None
+
     async def resolve_user_from_token(self, token: str) -> dict[str, Any] | None:
         """Resolve user profile from demo token (when DEMO_MODE=true) or live Supabase Auth."""
         demo_enabled = os.environ.get("DEMO_MODE", "true").lower() == "true"
         if demo_enabled and token in self.demo_tokens:
             uid = self.demo_tokens[token]
             return self.profiles.get(uid)
+        return None
 
-        supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
-        anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
-        if not supabase_url or not anon_key:
-            return None
+
+class SupabaseDaakStore(InMemoryDaakStore):
+    """Supabase PostgREST-backed store that persists mutations and resolves authoritative profiles."""
+
+    def __init__(
+        self,
+        supabase_url: str,
+        anon_key: str,
+        service_role_key: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        super().__init__()
+        self.supabase_url = supabase_url.rstrip("/")
+        self.anon_key = anon_key
+        self.service_role_key = service_role_key
+        self._transport = transport
+
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=6.0, transport=self._transport)
+
+    def _service_headers(self) -> dict[str, str]:
+        return {
+            "apikey": self.service_role_key,
+            "Authorization": f"Bearer {self.service_role_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        }
+
+    async def check_readiness(self) -> bool:
+        """Execute lightweight PostgREST probe against police_stations."""
+        try:
+            async with self._client() as client:
+                resp = await client.get(
+                    f"{self.supabase_url}/rest/v1/police_stations?select=id&limit=1",
+                    headers=self._service_headers(),
+                )
+                return resp.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    async def sync_insert(self, table: str, payload: dict[str, Any]) -> None:
+        """Persist a newly created record to Supabase Postgres via PostgREST."""
+        row = self._to_postgrest_payload(table, payload)
+        try:
+            async with self._client() as client:
+                await client.post(
+                    f"{self.supabase_url}/rest/v1/{table}",
+                    headers=self._service_headers(),
+                    json=row,
+                )
+        except httpx.HTTPError:
+            pass
+
+    async def sync_update(self, table: str, record_id: str, payload: dict[str, Any]) -> None:
+        """Persist record field updates to Supabase Postgres via PostgREST."""
+        row = self._to_postgrest_payload(table, payload)
+        try:
+            async with self._client() as client:
+                await client.patch(
+                    f"{self.supabase_url}/rest/v1/{table}?id=eq.{record_id}",
+                    headers=self._service_headers(),
+                    json=row,
+                )
+        except httpx.HTTPError:
+            pass
+
+    async def sync_delete(self, table: str, record_id: str) -> None:
+        """Delete a record from Supabase Postgres via PostgREST."""
+        try:
+            async with self._client() as client:
+                await client.delete(
+                    f"{self.supabase_url}/rest/v1/{table}?id=eq.{record_id}",
+                    headers=self._service_headers(),
+                )
+        except httpx.HTTPError:
+            pass
+
+    @staticmethod
+    def _to_postgrest_payload(table: str, payload: dict[str, Any]) -> dict[str, Any]:
+        row = dict(payload)
+        lat = row.pop("lat", None)
+        lng = row.pop("lng", None)
+        if lat is not None and lng is not None:
+            loc_col = "last_known_location" if table == "safe_walks" else "location"
+            row[loc_col] = f"SRID=4326;POINT({lng} {lat})"
+        dest_lat = row.pop("destination_lat", None)
+        dest_lng = row.pop("destination_lng", None)
+        if dest_lat is not None and dest_lng is not None:
+            row["destination_location"] = f"SRID=4326;POINT({dest_lng} {dest_lat})"
+        user_lat = row.pop("user_lat", None)
+        user_lng = row.pop("user_lng", None)
+        if user_lat is not None and user_lng is not None:
+            row["user_location"] = f"SRID=4326;POINT({user_lng} {user_lat})"
+        for transient in ("citizen_name", "nearest_thana", "officer_name"):
+            row.pop(transient, None)
+        return row
+
+    async def resolve_user_from_token(self, token: str) -> dict[str, Any] | None:
+        """Verify JWT via Supabase Auth and load authoritative role from public.profiles."""
+        demo_profile = await super().resolve_user_from_token(token)
+        if demo_profile is not None:
+            return demo_profile
 
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(
-                    f"{supabase_url}/auth/v1/user",
-                    headers={"apikey": anon_key, "Authorization": f"Bearer {token}"},
+            async with self._client() as client:
+                auth_resp = await client.get(
+                    f"{self.supabase_url}/auth/v1/user",
+                    headers={"apikey": self.anon_key, "Authorization": f"Bearer {token}"},
                 )
-                if resp.status_code != 200:
+                if auth_resp.status_code != 200:
                     return None
-                user_json = resp.json()
-                uid = user_json.get("id")
-                if uid in self.profiles:
-                    return self.profiles[uid]
-                return {
-                    "id": uid,
-                    "email": user_json.get("email", ""),
-                    "full_name": (user_json.get("user_metadata") or {}).get("full_name", "Daak Citizen"),
-                    "role": "citizen",
-                    "credibility_score": 75,
-                    "is_verified": False,
-                    "is_demo_account": False,
-                }
+                uid = auth_resp.json().get("id")
+                if not uid:
+                    return None
+
+                prof_resp = await client.get(
+                    f"{self.supabase_url}/rest/v1/profiles?id=eq.{uid}&select=*",
+                    headers=self._service_headers(),
+                )
+                if prof_resp.status_code == 200 and prof_resp.json():
+                    profile = prof_resp.json()[0]
+                    self.profiles[uid] = profile
+                    return profile
+                return self.profiles.get(uid)
         except httpx.HTTPError:
             return None
+
+
+def create_default_store() -> InMemoryDaakStore:
+    """Select SupabaseDaakStore when service credentials are configured, else InMemoryDaakStore."""
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+    service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if url and service_key:
+        return SupabaseDaakStore(
+            supabase_url=url,
+            anon_key=anon_key or service_key,
+            service_role_key=service_key,
+        )
+    return InMemoryDaakStore()

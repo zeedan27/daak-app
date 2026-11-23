@@ -46,7 +46,7 @@
 - [x] **Slice 3.1:** Supabase PostGIS Schema, Default-Deny RLS, `security_invoker` Views, Storage Buckets & Bangladesh Demo Seed (`supabase/migrations/*`, `tools/verify_schema_rls.py`)
 - [x] **Slice 3.2:** FastAPI Core Foundation & Deterministic Domain Engines (`apps/api/pyproject.toml`, `apps/api/app/__init__.py`, `apps/api/app/core.py`, `apps/api/app/engines.py`, `apps/api/tests/test_engines.py`)
 - [x] **Slice 3.3:** FastAPI `/api/v1` Routers, Store Adapter & Integration Test Suite (`apps/api/app/schemas.py`, `apps/api/app/store.py`, `apps/api/app/main.py`, `apps/api/tests/test_api.py`)
-- [ ] **Mid-Phase 3 Code Review (`requesting-code-review`)** on Slices 3.1–3.3
+- [x] **Mid-Phase 3 Code Review (`requesting-code-review`)** on Slices 3.1–3.3
 - [ ] **Slice 3.4:** Police & Admin Desktop Web (`apps/web`) — Shell, 1-Click Demo Role Switcher & Live SOS SLA Command Deck (`<= 5` code files)
 - [ ] **Slice 3.5:** Police & Admin Desktop Web (`apps/web`) — Crime Heatmap, Report Review, 5-Factor False-Report Triage, Shift Handovers & Criminal Watchlist CRUD (`<= 5` code files)
 - [ ] **Slice 3.6:** Citizen Mobile App + Expo Web Preview (`apps/mobile`) — Tactile 5s SOS Ring, Safe Walk Escort Timer, Incident Reporting + 1km Corroboration, Area Safety Score/Map & Bangla/Banglish DaakAI (`<= 5` code files)
