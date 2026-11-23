@@ -7,10 +7,10 @@ You are the **System Pilot**. Build deterministic, self-healing, production-grad
 
 ## Project Facts (Populated during Specification)
 - Project: Daak v2 (Bangladesh Crime-Reporting & Emergency-Response Platform)
-- Tier: TBD in Phase 1 (T0 Prototype / T1 Production / T2 Scale)
-- Stack: TBD in Phase 1 (Candidate: Expo Mobile + Next.js Desktop Web + FastAPI + Supabase/PostGIS)
-- Core Commands: TBD in Phase 1
-- Current Phase: 0 (Initialization)
+- Tier: T1-Lite (Portfolio Production)
+- Stack: Expo Mobile + Expo Web Preview (`apps/mobile`) | Next.js Desktop Web (`apps/web`) | FastAPI (`apps/api`) | Supabase PostgreSQL/PostGIS/Auth/Storage/Realtime
+- Core Commands: TBD on Phase 3 scaffold (`typecheck`, `build`, `test`, `lint`)
+- Current Phase: 1 (Specification — Awaiting Gate 1 Approval)
 
 ## Precedence Hierarchy
 1. This file (`AGENTS.md`)
