@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.main import app, get_store, rate_limiter
 from app.store import InMemoryDaakStore
 
@@ -202,15 +203,26 @@ def test_reports_anonymity_masking_false_report_scoring_and_1km_corroboration(cl
 
 def test_safety_score_heatmap_nearest_thana_and_ai_rate_limit(client: TestClient) -> None:
     citizen_hdr = _auth_header(client, "citizen")
+    police_hdr = _auth_header(client, "police")
 
     score_resp = client.get("/api/v1/safety-score?area=Dhanmondi", headers=citizen_hdr)
     assert score_resp.status_code == 200
-    assert "public" in score_resp.headers.get("cache-control", "")
+    score_cc = score_resp.headers.get("cache-control", "")
+    assert "private" in score_cc
+    assert "public" not in score_cc
+    assert "s-maxage" not in score_cc
     assert 0 <= score_resp.json()["data"]["score"] <= 100
 
     heatmap = client.get("/api/v1/heatmap", headers=citizen_hdr)
     assert heatmap.status_code == 200
+    hm_cc = heatmap.headers.get("cache-control", "")
+    assert "private" in hm_cc
+    assert "public" not in hm_cc
     assert len(heatmap.json()["data"]["points"]) >= 6
+
+    staff_heatmap = client.get("/api/v1/heatmap?include_sos=true", headers=police_hdr)
+    assert staff_heatmap.status_code == 200
+    assert "no-store" in staff_heatmap.headers.get("cache-control", "")
 
     thana = client.get("/api/v1/thanas/nearest?lat=23.7465&lng=90.3760", headers=citizen_hdr)
     assert thana.status_code == 200
@@ -494,4 +506,16 @@ def test_demo_mode_disabled_criminal_visibility_and_supabase_store_contract(clie
     assert resolved["role"] == "police"
     assert resolved["full_name"] == "Inspector Karim"
     assert asyncio.run(sb_store.check_readiness()) is True
+
+
+def test_readiness_returns_503_when_shutting_down(client: TestClient) -> None:
+    prev = main_module._is_shutting_down
+    main_module._is_shutting_down = True
+    try:
+        draining = client.get("/healthz/ready")
+        assert draining.status_code == 503
+        assert draining.json()["data"]["status"] == "draining"
+        assert "no-store" in draining.headers.get("cache-control", "")
+    finally:
+        main_module._is_shutting_down = prev
 

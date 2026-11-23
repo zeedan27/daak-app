@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -51,7 +52,20 @@ ALLOWED_SOS_TRANSITIONS: dict[str, set[str]] = {
 
 DEFAULT_CORS_ORIGINS = ["http://localhost:3000", "http://localhost:8081"]
 
-app = FastAPI(title="Daak v2 API", version="0.2.0")
+_is_shutting_down: bool = False
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global _is_shutting_down
+    _is_shutting_down = False
+    print(emit_json_log("api.startup", "lifecycle", {"version": "0.2.0"}), flush=True)
+    yield
+    _is_shutting_down = True
+    print(emit_json_log("api.shutting_down", "lifecycle", {"status": "draining"}), flush=True)
+
+
+app = FastAPI(title="Daak v2 API", version="0.2.0", lifespan=lifespan)
 
 cors_origins = [
     origin.strip()
@@ -280,6 +294,19 @@ async def health_live(request: Request) -> dict[str, Any]:
 
 @app.get("/healthz/ready")
 async def health_ready(request: Request, store: InMemoryDaakStore = Depends(get_store)) -> JSONResponse:
+    if _is_shutting_down:
+        return JSONResponse(
+            status_code=503,
+            content=_ok(
+                request,
+                {
+                    "status": "draining",
+                    "stations_loaded": len(store.police_stations),
+                    "supabase_configured": bool(os.environ.get("SUPABASE_URL")),
+                },
+            ),
+            headers={"Cache-Control": "private, no-store"},
+        )
     db_ok = await store.check_readiness()
     status_code = 200 if db_ok else 503
     return JSONResponse(
@@ -856,7 +883,7 @@ async def get_safety_score(
             ]
             cached = calculate_area_safety_score(area, area_reports)
         aggregate_cache.set(cache_key, cached)
-    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=60"
+    response.headers["Cache-Control"] = "private, max-age=30"
     response.headers["Vary"] = "Accept-Encoding"
     return _ok(request, cached)
 
@@ -922,7 +949,7 @@ async def get_heatmap(
                     )
         cached = {"points": points, "total": len(points)}
         aggregate_cache.set(cache_key, cached)
-    response.headers["Cache-Control"] = "public, max-age=0, s-maxage=30, stale-while-revalidate=60"
+    response.headers["Cache-Control"] = "private, no-store" if is_staff else "private, max-age=30"
     response.headers["Vary"] = "Accept-Encoding"
     return _ok(request, cached)
 
